@@ -40,7 +40,7 @@ $inotify->watch("$inputXMLFileDir", IN_CLOSE_WRITE, sub {
 
  # call the SBAC script to process user objects contained in the new file
  `/opt/scripts/sbacProcessXML-OpenDJ.pl $name`;
- `/opt/scripts/sbacProcessXML.pl $name`;
+ `/opt/scripts/sbacProcessXML-Federated.pl $name`;
  
 }) or die "watch creation failed: $!";
 
