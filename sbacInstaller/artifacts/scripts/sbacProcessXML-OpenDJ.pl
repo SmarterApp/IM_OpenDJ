@@ -6,7 +6,7 @@ use Net::LDAP::Util qw(ldap_error_text);
 use Net::SMTP;
 use File::Copy qw(move);
 use LWP::UserAgent;
-use JSON;
+use HTTP::Request;
 
 ###################################################################################################
 # Educational Online Test Delivery System                                                         #
@@ -34,7 +34,7 @@ use JSON;
 #                                                                                                 #
 # Author: Bill Nelson (Identity Fusion, Inc.) - bill.nelson@identityfusion.com                    #
 #                                                                                                 #
-# Change Log:                                                                                     #
+# Change Log:                                                                                     #   
 #                                                                                                 #
 #  11/27/2015 - Modified processPasswordReset() to allow optional app defined message to be       #
 #               included in password reset message.                                               #
@@ -93,19 +93,19 @@ use JSON;
 ###################################################################################################
 
 
-# Control Variables - these variables control the flow and/or output in the script (defaults shown in parentheses)
+# Control Variables - these variables controle the flow and/or output in the script (defaults shown in parentheses)
 
-my $consoleOutput      = 1;                                # (0) - 0 = disable console messages;   1 = enable console messages
+my $consoleOutput      = 0;                                # (0) - 0 = disable console messages;   1 = enable console messages
 my $sendHTTPResponse   = 1;                                # (1) - 0 = do not send HTTP response;  1 = send HTTP response
-my $sendEmailResponse  = 0;                                # (1) - 0 = do not send email response; 1 = send email response
+my $sendEmailResponse  = 1;                                # (1) - 0 = do not send email response; 1 = send email response
 my $extendedLogging    = 1;                                # (1) - 0 = disable extended logging;   1 = enable extended logging
 my $emailOverride      = 0;                                # (0) - 0 = use email addr from file;   1 = explicitly specify email addr
 my $testXMLFile        = 0;                                # (0) - 0 = processing real XML file;   1 = processing test XML file
 
 # Environmental Variables - these variables may be customized to reflect your environment
 
-my $inputXMLFileDir    = "[XML FILE DIR]";                 # full path where the XML files are uploaded
-my $processedFileDir   = "[PROCESS FILE DIR]";             # full path where the XML files are stored after processing
+my $inputXMLFileDir    = "[XML-UPLOAD]";                   # full path where the XML files are uploaded
+my $processedFileDir   = "[PROCESSED-FILES]";              # full path where the XML files are stored after processing
 my $httpResponseServer = "[CALLBACK-URL]";                 # HTTP server URL for response
 my $ldapHost           = "[LDAP-HOST]";                    # host name of the OpenDJ server
 my $ldapPort           = "[LDAP-PORT]";                    # port number of the OpenDJ server
@@ -113,19 +113,13 @@ my $ldapBindDN         = "[BIND-DN]";                      # administrative user
 my $ldapBindPass       = "[BIND-PASSWORD]";                # password for the administrative user
 my $ldapBaseDN         = "[BASEDN]";                       # path in LDAP Server directory tree where the users may be found
 my $ldapTimeout        = "10";                             # how long to wait (in seconds) for a connection to the LDAP server before timing out
-my $fedAPIHost         = "[FEDERATED-API-HOST]";           # host name of the Federated SSO server
-my $fedAPIAuthKey      = "[FEDERATED-API-AUTH-KEY]";       # authorization key for the Federated SSO administrative user
-my $fedAPIAddEndpoint  = "[FEDERATED-ADD]";                # Federated SSO endpoint for adding an object
-#my $fedAPIModEndpoint  = "[FEDERATED-MOD]"                 # Federated SSO endpoint for modifying an object
-#my $fedAPIDelEndpoint  = "[FEDERATED-DEL]"                 # Federated SSO endpoint for deleting an object
-#my $fedAPISyncEndpoint = "[FEDERATED-SYNC]"                # Federated SSO endpoint for syncing an object
 
 # Email Variables - these variables are specific to subroutines which generate emails
 
-my $fromAddress       = "[EMAIL-SENDER]";                  # all email will come from this email address (i.e. bill.nelson@identityfusion.com)
-my $fromPerson        = "[EMAIL-NAME]";                    # the name of the person sending the email (i.e. Bill Nelson)
-my $emailAddrOverride = "[OVERRIDE-EMAIL]";                # when $emailOverride flag is set, send recipient's email to this addr instead of recipient
-my $adminEmail        = "[ADMIN-EMAIL]";                   # email address of user who is monitoring script results
+my $fromAddress       = '[EMAIL-SENDER]';                  # all email will come from this email address (i.e. bill.nelson@identityfusion.com)
+my $fromPerson        = '[EMAIL-NAME';                     # the name of the person sending the email (i.e. Bill Nelson)
+my $emailAddrOverride = '[OVERRIDE-EMAIL]';                # when $emailOverride flag is set, send recipient's email to this addr instead of recipient
+my $adminEmail        = '[ADMIN-EMAIL]';                   # email address of user who is monitoring script results
 my $emailServer       = "[EMAIL-SERVER]";                  # email server (i.e. mail.foo.com:10025)
 my $defaultPassword   = "[DEFAULT-PASSWORD]";              # default password for test users
 
@@ -153,7 +147,7 @@ my $notifyCount = 0;       # number of users that will receive a email once this
 my $roleCount   = 0;       # number of total roles processed for all users found in the data file
 my $lineCount   = 0;       # number of lines processed (used for extended logging)
 
-# initialize other variables for this script
+# initialize other varilables for this script
 my @userData;              # array containing user data
 my @errorData;             # array containing error data
 my @emailList;             # list of additional email addresses for notifications
@@ -218,24 +212,20 @@ if ($xmlFileName =~ /testfile/) {
 # open the XML file for reading
 open(XMLFILE, $xmlFileName) or die "Error!  Could not open XML file ($xmlFileName) - $!";
 
-# Set the Federated SSO API object, host, and header
-
-# Deprecate ldap connection
 # Open a TCP connection with the OpenDJ Server, timeout if no response in 10s
-#my $ldapHandle = Net::LDAP->new("$ldapHost", port=>$ldapPort, timeout=>$ldapTimeout) or die "$@";
+my $ldapHandle = Net::LDAP->new("$ldapHost", port=>$ldapPort, timeout=>$ldapTimeout) or die "$@";
 
-# Deprecate ldap binding
 # Bind to the directory server with the credentials provided
-#my $mesg = $ldapHandle->bind("$ldapBindDN", password=>"$ldapBindPass");
+my $mesg = $ldapHandle->bind("$ldapBindDN", password=>"$ldapBindPass");
 
-# Deprecate the ldap bind message
 # check for valid bind operation or print error if unable to bind
-#if ($mesg->code) {
+if ($mesg->code) {
 
     # Process an early exit from the script
-#    my $errorMessage = "Cannot bind to the directory server: $ldapHost:$ldapPort".ldap_error_text($mesg->code)."<br><br>";
-#    processEarlyExit($errorMessage,$dataFileExists);
-#}
+    my $errorMessage = "Cannot bind to the directory server: $ldapHost:$ldapPort".ldap_error_text($mesg->code)."<br><br>";
+    processEarlyExit($errorMessage,$dataFileExists);
+
+}
 
 my $line = "";
 foreach $line (<XMLFILE>)  {   
@@ -328,17 +318,16 @@ if ($userCount == 1) {
 
 ########## Close Connections ##########
 
-# Deprecate the ldap close connections
 # unbind and disconnect from the OpenDJ server
-#$ldapHandle->unbind;
-#$ldapHandle->disconnect;
+$ldapHandle->unbind;
+$ldapHandle->disconnect;
 
 # close the XML file
 close(XMLFILE);
 
 ########## Move the Input File ##########
 
-moveXMLFile();
+# moveXMLFile();
 
 ########## Message Console ##########
 
@@ -480,10 +469,7 @@ sub processAddAction {
   my $mail            = "";     # User's email address
   my $userPassword    = "";     # User's initial password
   my $telephoneNumber = "";     # User's telephone number
-  
-  # defining the Federated SSO attributes
-  my $body = "";
-  
+
   my $processingRoleFlag = 0;   # Flag to indicate if we are currently processing data associated with a user's role (tenancy chain)
   my $sbacTenancyChain = "";    # The actual tenancy chain
   my $numRoleElements  = 0;     # The number of elements in the @roleArray
@@ -621,7 +607,7 @@ sub processAddAction {
   if ($consoleOutput == 1) { print "\nDN:  $DN\n"; }
 
   ##############################################
-  # Update the Federated SSO with the new user #
+  # Update the OpenDJ Server with the new user #
   ##############################################
 
   # if a password was not passed in via the data file, we will generate one
@@ -652,134 +638,109 @@ sub processAddAction {
   # determine the number of elements included in the role array (how many tenancy chains)
   $numRoleElements = @roleArray;
 
-  # Add the new user to the Federated SSO
+  # Add the new user to the OpenDJ server
   if ($telephoneNumber eq "undef") {
 
       if ($numRoleElements == 0) {
-          #$mesg = $ldapHandle->add($DN, attr => [
-          #        'sn'               => "$sn",
-          #        'givenName'        => "$givenName",
-          #        'cn'               => "$cn",
-          #        'sbacUUID'         => "$sbacuuid",
-          #        'uid'              => "$uid",
-          #        'mail'             => "$mail",
-          #        'userPassword'     => "$userPassword",
-          #        'inetUserStatus'   => "Active",
-          #        'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
+
+          $mesg = $ldapHandle->add($DN, attr => [
+                  'sn'               => "$sn",
+                  'givenName'        => "$givenName",
+                  'cn'               => "$cn",
+                  'sbacUUID'         => "$sbacuuid",
+                  'uid'              => "$uid",
+                  'mail'             => "$mail",
+                  'userPassword'     => "$userPassword",
+                  'inetUserStatus'   => "Active",
+                  'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
 
       } else {
-          # build the JSON object to pass to the API
-          $body = {
-              profile => {
-                  login => $mail,
-                  firstName => $givenName,
-                  lastName => $sn,
-                  email => $mail,
-                  sbacUUID => $sbacuuid,
-                  sbacTenancyChain => [ @roleArray ]
-              }
-          };
-          
-          # convert the $body into a proper JSON object
-          my $body_json = JSON->new->utf8->encode($body);
-          if ($consoleOutput == 1) { print "JSON: $body_json\n"; }
-          
-          my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIAddEndpoint);
-          $req->header('Accept' => 'application/json');
-          $req->header('Content-Type' => 'application/json');
-          $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
-          $req->content($body_json);
-          
-          my $lwp = LWP::UserAgent->new; 
-          $lwp->ssl_opts(verify_hostname => 0);         
-          my $res = $lwp->request($req)->as_string;
 
-          if ($consoleOutput == 1) { print "API Response: $res\n"; }
-          
-          # $mesg = $ldapHandle->add($DN, attr => [
-                  # 'sn'               => "$sn",
-                  # 'givenName'        => "$givenName",
-                  # 'cn'               => "$cn",
-                  # 'sbacUUID'         => "$sbacuuid",
-                  # 'uid'              => "$uid",
-                  # 'mail'             => "$mail",
-                  # 'userPassword'     => "$userPassword",
-                  # 'inetUserStatus'   => "Active",
-                  # 'sbacTenancyChain' => [ @roleArray ],
-                  # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
+          $mesg = $ldapHandle->add($DN, attr => [
+                  'sn'               => "$sn",
+                  'givenName'        => "$givenName",
+                  'cn'               => "$cn",
+                  'sbacUUID'         => "$sbacuuid",
+                  'uid'              => "$uid",
+                  'mail'             => "$mail",
+                  'userPassword'     => "$userPassword",
+                  'inetUserStatus'   => "Active",
+                  'sbacTenancyChain' => [ @roleArray ],
+                  'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
+
       }
 
   } else {
 
       if ($numRoleElements == 0) {
 
-          # $mesg = $ldapHandle->add($DN, attr => [
-                  # 'sn'               => "$sn",
-                  # 'givenName'        => "$givenName",
-                  # 'cn'               => "$cn",
-                  # 'sbacUUID'         => "$sbacuuid",
-                  # 'uid'              => "$uid",
-                  # 'mail'             => "$mail",
-                  # 'userPassword'     => "$userPassword",
-                  # 'telephoneNumber'  => "$telephoneNumber",
-                  # 'inetUserStatus'   => "Active",
-                  # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
+          $mesg = $ldapHandle->add($DN, attr => [
+                  'sn'               => "$sn",
+                  'givenName'        => "$givenName",
+                  'cn'               => "$cn",
+                  'sbacUUID'         => "$sbacuuid",
+                  'uid'              => "$uid",
+                  'mail'             => "$mail",
+                  'userPassword'     => "$userPassword",
+                  'telephoneNumber'  => "$telephoneNumber",
+                  'inetUserStatus'   => "Active",
+                  'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
 
       } else {
 
-          # $mesg = $ldapHandle->add($DN, attr => [
-                  # 'sn'               => "$sn",
-                  # 'givenName'        => "$givenName",
-                  # 'cn'               => "$cn",
-                  # 'sbacUUID'         => "$sbacuuid",
-                  # 'uid'              => "$uid",
-                  # 'mail'             => "$mail",
-                  # 'userPassword'     => "$userPassword",
-                  # 'telephoneNumber'  => "$telephoneNumber",
-                  # 'inetUserStatus'   => "Active",
-                  # 'sbacTenancyChain' => [ @roleArray ],
-                  # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
+          $mesg = $ldapHandle->add($DN, attr => [
+                  'sn'               => "$sn",
+                  'givenName'        => "$givenName",
+                  'cn'               => "$cn",
+                  'sbacUUID'         => "$sbacuuid",
+                  'uid'              => "$uid",
+                  'mail'             => "$mail",
+                  'userPassword'     => "$userPassword",
+                  'telephoneNumber'  => "$telephoneNumber",
+                  'inetUserStatus'   => "Active",
+                  'sbacTenancyChain' => [ @roleArray ],
+                  'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
 
       }
   }
 
-  # if ($mesg->code) {
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing ADD on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while adding entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing ADD on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while adding entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "ADD:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "ADD:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # # Don't send emails to users if we are processing a XML file used for testing
-      # if ($testXMLFile == 0) {
+      # Don't send emails to users if we are processing a XML file used for testing
+      if ($testXMLFile == 0) {
 
-          # # notify the user that their account has been created
-          # my $emailSubject = "Welcome to the Smarter Balanced development environment";
-          # my $emailBody = "Welcome, $cn, to Smarter Balanced!  Your account, $uid, has been created and your temporary password is: $userPassword<br><br>";
-             # $emailBody .= "This account will let you immediately access the Smarter Balanced development environment.<br><br>";
-             # $emailBody .= "You are required to change your temporary password.<br><br>";
-             # $emailBody .= "Click the following link to access your account and update your password: <a href=\"https://oam-secure.ci.opentestsystem.org/auth/UI/Login\">https://oam-secure.ci.opentestsystem.org/auth/UI/Login</a>.<br><br>";
-             # $emailBody .= "You will not be able to log into any Smarter Balanced systems until you have updated your temporary password and provided an answer to a security question.<br><br>";
-             # $emailBody .= "You can find out more information about Smarter Balanced systems on the <a href=\"http://portal-dev.opentestsystem.org/\">Smarter Balanced web site</a> at http://portal-dev.opentestsystem.org/.<br><br>";
+          # notify the user that their account has been created
+          my $emailSubject = "Welcome to the Smarter Balanced development environment";
+          my $emailBody = "Welcome, $cn, to Smarter Balanced!  Your account, $uid, has been created and your temporary password is: $userPassword<br><br>";
+             $emailBody .= "This account will let you immediately access the Smarter Balanced development environment.<br><br>";
+             $emailBody .= "You are required to change your temporary password.<br><br>";
+             $emailBody .= "Click the following link to access your account and update your password: <a href=\"https://oam-secure.ci.opentestsystem.org/auth/UI/Login\">https://oam-secure.ci.opentestsystem.org/auth/UI/Login</a>.<br><br>";
+             $emailBody .= "You will not be able to log into any Smarter Balanced systems until you have updated your temporary password and provided an answer to a security question.<br><br>";
+             $emailBody .= "You can find out more information about Smarter Balanced systems on the <a href=\"http://portal-dev.opentestsystem.org/\">Smarter Balanced web site</a> at http://portal-dev.opentestsystem.org/.<br><br>";
 
-          # if ($emailOverride == 1) { 
-              # $mail = $emailAddrOverride;
-          # } 
-          # sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
+          if ($emailOverride == 1) { 
+              $mail = $emailAddrOverride;
+          } 
+          sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
 
-          # # if extended logging is enabled, add additional details to log file
-          # if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of new account ($mail)\""); }
-      # }
+          # if extended logging is enabled, add additional details to log file
+          if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of new account ($mail)\""); }
+      }
 
-       $addCount++;        # Keep track of how many additions were made to the OpenDJ server
-  # }
+      $addCount++;        # Keep track of how many additions were made to the OpenDJ server
+  }
 
   # initialize the role array after processing; use the undef() to free up memory
   undef(@roleArray);
@@ -828,26 +789,26 @@ sub processDelAction {
   ##########################################
 
   # Delete the user from the OpenDJ server
-  #$mesg = $ldapHandle->delete($DN);
+  $mesg = $ldapHandle->delete($DN);
 
   # check for valid bind operation or print error if unable to update the hos
-  # if ($mesg->code) {
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing DEL on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while deleting entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing DEL on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while deleting entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "DEL:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "DEL:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # $delCount++;        # Keep track of how many user deletions were made on the OpenDJ server
+      $delCount++;        # Keep track of how many user deletions were made on the OpenDJ server
 
-  # }
+  }
 
 return 1;
 
@@ -1028,69 +989,69 @@ sub processModAction {
   # determine the number of elements included in the role array (how many tenancy chains)
   $numRoleElements = @roleArray;
 
-  # if ($telephoneNumber eq "undef") {
+  if ($telephoneNumber eq "undef") {
 
-      # if ($numRoleElements == 0) {
+      if ($numRoleElements == 0) {
 
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ] ] );                   
+          $mesg = $ldapHandle->modify($DN, changes => [
+                  replace => [ 'sn'               => "$sn" ],
+                  replace => [ 'givenName'        => "$givenName" ] ,
+                  replace => [ 'cn'               => "$cn" ],
+                  replace => [ 'uid'              => "$uid" ],                   
+                  replace => [ 'mail'             => "$mail" ] ] );                   
 
-      # } else { 
+      } else { 
 
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ],                   
-                  # replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
-      # }
+          $mesg = $ldapHandle->modify($DN, changes => [
+                  replace => [ 'sn'               => "$sn" ],
+                  replace => [ 'givenName'        => "$givenName" ] ,
+                  replace => [ 'cn'               => "$cn" ],
+                  replace => [ 'uid'              => "$uid" ],                   
+                  replace => [ 'mail'             => "$mail" ],                   
+                  replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
+      }
 
-  # } else {
+  } else {
 
-      # if ($numRoleElements == 0) {
+      if ($numRoleElements == 0) {
 
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ],                   
-                  # replace => [ 'telephoneNumber'  => "$telephoneNumber" ] ] );
-      # } else {
+          $mesg = $ldapHandle->modify($DN, changes => [
+                  replace => [ 'sn'               => "$sn" ],
+                  replace => [ 'givenName'        => "$givenName" ] ,
+                  replace => [ 'cn'               => "$cn" ],
+                  replace => [ 'uid'              => "$uid" ],                   
+                  replace => [ 'mail'             => "$mail" ],                   
+                  replace => [ 'telephoneNumber'  => "$telephoneNumber" ] ] );
+      } else {
 
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ],                   
-                  # replace => [ 'telephoneNumber'  => "$telephoneNumber" ],
-                  # replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
-      # }
+          $mesg = $ldapHandle->modify($DN, changes => [
+                  replace => [ 'sn'               => "$sn" ],
+                  replace => [ 'givenName'        => "$givenName" ] ,
+                  replace => [ 'cn'               => "$cn" ],
+                  replace => [ 'uid'              => "$uid" ],                   
+                  replace => [ 'mail'             => "$mail" ],                   
+                  replace => [ 'telephoneNumber'  => "$telephoneNumber" ],
+                  replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
+      }
 
-  # }
+  }
   
-  # if ($mesg->code) {
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing MOD on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while modifying entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing MOD on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while modifying entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "MOD:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "MOD:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # $modCount++;        # Keep track of how many modifications were made to the OpenDJ server
-  # }
+      $modCount++;        # Keep track of how many modifications were made to the OpenDJ server
+  }
 
   # initialize the role array after processing; use the undef() to free up memory
   undef(@roleArray);
@@ -1149,53 +1110,53 @@ sub processSyncAction {
   my $attrs = [ 'dn' ];                     # a comma-delimited array of attributes to return in the search
 
   # Search for the account in the OpenDJ server
-  #my $mesg = $ldapHandle->search( base => "$base", scope => "$scope", filter => "$searchString", attrs => $attrs);
+  my $mesg = $ldapHandle->search( base => "$base", scope => "$scope", filter => "$searchString", attrs => $attrs);
 
-  # if ($mesg->code) {
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing SYNC on $sbacuuid. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while processing SYNC on $sbacuuid.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing SYNC on $sbacuuid. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while processing SYNC on $sbacuuid.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "SYNC:".$sbacuuid.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "SYNC:".$sbacuuid.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # $syncCount++;       # Keep track of how many synchroniation operations were made to the OpenDJ server
+      $syncCount++;       # Keep track of how many synchroniation operations were made to the OpenDJ server
 
-      # if ($consoleOutput == 1) { printf "\n# Entries found: %s\n", $mesg->count; }
+      if ($consoleOutput == 1) { printf "\n# Entries found: %s\n", $mesg->count; }
 
-      # if ($mesg->count == 0) { 
+      if ($mesg->count == 0) { 
 
-          # # Process this as an ADD Action
-          # processAddAction(\@syncArray);
+          # Process this as an ADD Action
+          processAddAction(\@syncArray);
 
-      # } elsif ($mesg->count == 1) { 
+      } elsif ($mesg->count == 1) { 
 
-          # # Process this as a MOD Action  
-          # processModAction(\@syncArray);
+          # Process this as a MOD Action  
+          processModAction(\@syncArray);
 
-      # } else {
+      } else {
 
-          # # There were too many entries found.  There should have been only one or no entries
+          # There were too many entries found.  There should have been only one or no entries
 
-          # $errCount++;    # Keep track of how many errors we have incurred
+          $errCount++;    # Keep track of how many errors we have incurred
 
-          # # Send message to log file indicating error
-          # updateLog("WARN", "\"An error occurred while processing SYNC on $sbacuuid. More than one entry found in search operation\"");
-          # warn "\nAn error occurred while processing SYNC on $sbacuuid.  See logfile for details\n";
+          # Send message to log file indicating error
+          updateLog("WARN", "\"An error occurred while processing SYNC on $sbacuuid. More than one entry found in search operation\"");
+          warn "\nAn error occurred while processing SYNC on $sbacuuid.  See logfile for details\n";
 
-          # # Save the error and include it in a final report
-          # $errorEntry = "SYNC:$sbacuuid:More than one entry found in search operation";
-          # push(@errorData, $errorEntry);
+          # Save the error and include it in a final report
+          $errorEntry = "SYNC:$sbacuuid:More than one entry found in search operation";
+          push(@errorData, $errorEntry);
 
-      # }
+      }
 
-  # }
+  }
 
   # initialize the array after processing; use the undef() to free up memory
   undef(@syncArray);
@@ -1264,53 +1225,53 @@ sub processResetAction {
   $userPassword = generateRandomPassword();
 
   # Reset the user's password in the OpenDJ server
-  #$mesg = $ldapHandle->modify($DN, changes => [
-  #        replace => [ 'userPassword'     => "$userPassword" ]] );
+  $mesg = $ldapHandle->modify($DN, changes => [
+          replace => [ 'userPassword'     => "$userPassword" ]] );
 
 
-  # if ($mesg->code) {
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing RESET on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while resetting passsword for entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing RESET on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while resetting passsword for entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "RESET:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "RESET:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # # notify the user that their password has been reset
-      # my $emailSubject = "Smarter Balanced Digital Library Account Password Reset";
+      # notify the user that their password has been reset
+      my $emailSubject = "Smarter Balanced Digital Library Account Password Reset";
 
-      # my $emailBody  = "Your Smarter Balanced password has been reset.  Your temporary password is: $userPassword<br><br>";
+      my $emailBody  = "Your Smarter Balanced password has been reset.  Your temporary password is: $userPassword<br><br>";
 
-         # # if defined, include optional message
-         # if ($message ne "") {
+         # if defined, include optional message
+         if ($message ne "") {
 
-            # $emailBody .= "$message<br><br>";
+            $emailBody .= "$message<br><br>";
 
-            # if ( $extendedLogging == 1 ) { updateLog("INFO", "\"Included Message: $message)\""); }
+            if ( $extendedLogging == 1 ) { updateLog("INFO", "\"Included Message: $message)\""); }
 
-         # } 
+         } 
 
-         # $emailBody .= "You are required to change your password the next time you log in.<br><br>";
-         # $emailBody .= "Click <a href=\"https://oam-secure.ci.opentestsystem.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
+         $emailBody .= "You are required to change your password the next time you log in.<br><br>";
+         $emailBody .= "Click <a href=\"https://oam-secure.ci.opentestsystem.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
 
-# #     my $emailBody = "Your Smarter Balanced password has been reset.  Your temporary password is: $userPassword<br><br>You are required to change your password the next time you log in.<br><br>Click <a href=\"https://sbac.openam.airast.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
+#     my $emailBody = "Your Smarter Balanced password has been reset.  Your temporary password is: $userPassword<br><br>You are required to change your password the next time you log in.<br><br>Click <a href=\"https://sbac.openam.airast.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
 
-      # if ($emailOverride == 1) {
-          # $mail = $emailAddrOverride;
-      # }
-      # sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
+      if ($emailOverride == 1) {
+          $mail = $emailAddrOverride;
+      }
+      sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
 
-      # # if extended logging is enabled, add additional details to log file
-      # if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of password reset ($mail)\""); }
+      # if extended logging is enabled, add additional details to log file
+      if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of password reset ($mail)\""); }
 
-      # $resetCount++;      # Keep track of how many password resets were made to the OpenDJ server
-  # }
+      $resetCount++;      # Keep track of how many password resets were made to the OpenDJ server
+  }
 
 return 1;
 
@@ -1372,40 +1333,40 @@ sub processPwdChangeAction {
   ##################################################
 
   # Change the user's password in the OpenDJ server
-  # $mesg = $ldapHandle->modify($DN, changes => [
-          # replace => [ 'userPassword'     => "$userPassword" ]] );
+  $mesg = $ldapHandle->modify($DN, changes => [
+          replace => [ 'userPassword'     => "$userPassword" ]] );
 
 
-  # if ($mesg->code) {
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing SETPWD on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while changing the passsword for entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing SETPWD on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while changing the passsword for entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "SETPWD:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "SETPWD:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # # COMMENTING OUT THE SENDING OF EMAIL FOR NOW (AS PER REQTS).  LEAVING IT IN PLACE SHOULD REQTS CHANGE
+      # COMMENTING OUT THE SENDING OF EMAIL FOR NOW (AS PER REQTS).  LEAVING IT IN PLACE SHOULD REQTS CHANGE
 
-      # # notify the user that their password has been reset 
-# #     my $emailSubject = "Smarter Balanced Password Change";
-# #     my $emailBody = "Your Smarter Balanced password has been changed.  Your temporary password is: $userPassword<br><br>You are required to change your password the next time you log in.<br><br>Click <a href=\"https://sbac.openam.airast.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
+      # notify the user that their password has been reset 
+#     my $emailSubject = "Smarter Balanced Password Change";
+#     my $emailBody = "Your Smarter Balanced password has been changed.  Your temporary password is: $userPassword<br><br>You are required to change your password the next time you log in.<br><br>Click <a href=\"https://sbac.openam.airast.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
 
-# #     if ($emailOverride == 1) {
-# #         $mail = $emailAddrOverride;
-# #     }
-# #     sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
+#     if ($emailOverride == 1) {
+#         $mail = $emailAddrOverride;
+#     }
+#     sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
 
-# #     # if extended logging is enabled, add additional details to log file
-# #     if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of password reset ($mail)\""); }
+#     # if extended logging is enabled, add additional details to log file
+#     if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of password reset ($mail)\""); }
 
-      # $pwdChgCount++;      # Keep track of how many password change operations were made to the OpenDJ server
-  # }
+      $pwdChgCount++;      # Keep track of how many password change operations were made to the OpenDJ server
+  }
 
 return 1;
 
@@ -1449,26 +1410,26 @@ sub processLockAction {
   ######################################
 
   # Lock the user's account in the OpenDJ server
-  # $mesg = $ldapHandle->modify($DN, replace => { "inetUserStatus" => "Inactive" } );
+  $mesg = $ldapHandle->modify($DN, replace => { "inetUserStatus" => "Inactive" } );
 
-  # # check for valid bind operation or print error if unable to update the hos
-  # if ($mesg->code) {
+  # check for valid bind operation or print error if unable to update the hos
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing LOCK on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while locking entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing LOCK on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while locking entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "LOCK:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "LOCK:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-      # $lockCount++;       # Keep track of how many users were locked in the OpenDJ server
+      $lockCount++;       # Keep track of how many users were locked in the OpenDJ server
 
-  # }
+  }
 
 return 1;
 
@@ -1516,26 +1477,26 @@ sub processUnlockAction {
   ########################################
 
   # Unlock the user's account in the OpenDJ server
-  # $mesg = $ldapHandle->modify($DN, replace => { "inetUserStatus" => "Active" } );
+  $mesg = $ldapHandle->modify($DN, replace => { "inetUserStatus" => "Active" } );
 
-  # # check for valid bind operation or print error if unable to update the hos
-  # if ($mesg->code) {
+  # check for valid bind operation or print error if unable to update the hos
+  if ($mesg->code) {
 
-      # $errCount++;    # Keep track of how many errors we have incurred
+      $errCount++;    # Keep track of how many errors we have incurred
 
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing UNLOCK on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while unlocking entry: $DN.  See logfile for details\n";
+      # Send message to log file indicating error
+      updateLog("WARN", "\"An error occurred while processing UNLOCK on $DN. ".ldap_error_text($mesg->code)."\"");
+      warn "\nAn error occurred while unlocking entry: $DN.  See logfile for details\n";
 
-      # # Save the error and include it in a final report
-      # $errorEntry = "UNLOCK:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
+      # Save the error and include it in a final report
+      $errorEntry = "UNLOCK:".$DN.":".ldap_error_text($mesg->code);
+      push(@errorData, $errorEntry);
 
-  # } else {
+  } else {
 
-     # $unlockCount++;     # Keep track of how many users were unlocked in the OpenDJ server
+     $unlockCount++;     # Keep track of how many users were unlocked in the OpenDJ server
 
-  # }
+  }
 
 return 1;
 
@@ -1672,12 +1633,11 @@ sub updateLog {
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
   my $yyyymmdd = sprintf "%.4d%.2d%.2d", $year+1900, $mon+1, $mday;
 
-  #my $logFile  = "/opt/scripts/drc/logs/sbaclogfile-$yyyymmdd";      # log File Name
-  my $logFile  = "/Users/alexdean/Desktop/SmarterBalanced/okta/logs/sbaclogfile-$yyyymmdd";      # log File Name
+  my $logFile  = "/opt/scripts/drc/logs/sbaclogfile-$yyyymmdd";      # log File Name
 
   # open log file (make sure script user has permissions to write to directory)
-  open (LOGFILE, ">>$logFile") or die "\nUnable to open log file ($logFile).  $!\n\n";
-  
+  open (LOGFILE, ">>$logFile") || die "\nUnable to open log file ($logFile).  $!\n\n";
+
   my $logMessage = sprintf "[%.2d/%.2d/%.2d:%.2d:%.2d:%.2d] %s %s",$mon+1, $mday, $year+1900, $hour, $min, $sec, $msgType, $msgText;
 
   print LOGFILE "$logMessage\n";
@@ -1859,8 +1819,8 @@ sub processEarlyExit {
   ########## Close Connections ##########
 
   # unbind and disconnect from the OpenDJ server
-  #$ldapHandle->unbind;
-  #$ldapHandle->disconnect;
+  $ldapHandle->unbind;
+  $ldapHandle->disconnect;
 
   # close the XML file
   close(XMLFILE);
@@ -1915,6 +1875,3 @@ sub processEarlyExit {
   die ("$textFormattedErrorMessage\n");
 
 }    # end of processEarlyExit
-
-
-
