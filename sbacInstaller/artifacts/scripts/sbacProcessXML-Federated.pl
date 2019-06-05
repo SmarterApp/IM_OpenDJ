@@ -116,7 +116,7 @@ my $ldapTimeout        = "10";                             # how long to wait (i
 my $fedAPIHost         = "[FEDERATED-API-HOST]";           # host name of the Federated SSO server
 my $fedAPIAuthKey      = "[FEDERATED-API-AUTH-KEY]";       # authorization key for the Federated SSO administrative user
 my $fedAPIAddEndpoint  = "[FEDERATED-ADD]";                # Federated SSO endpoint for adding an object
-#my $fedAPIModEndpoint  = "[FEDERATED-MOD]"                 # Federated SSO endpoint for modifying an object
+my $fedAPIModEndpoint  = "[FEDERATED-MOD]"                 # Federated SSO endpoint for modifying an object
 #my $fedAPIDelEndpoint  = "[FEDERATED-DEL]"                 # Federated SSO endpoint for deleting an object
 #my $fedAPISyncEndpoint = "[FEDERATED-SYNC]"                # Federated SSO endpoint for syncing an object
 
@@ -886,6 +886,9 @@ sub processModAction {
   my $userPassword    = "";     # User's initial password
   my $telephoneNumber = "";     # User's telephone number
 
+  # defining the Federated SSO attributes
+  my $body = "";
+  
   my $processingRoleFlag = 0;     # Flag to indicate if we are currently processing data associated with a user's role (tenancy chain)
   my $sbacTenancyChain = "";    # The actual tenancy chain
   my $numRoleElements  = 0;     # The number of elements in the @roleArray
@@ -1028,9 +1031,9 @@ sub processModAction {
   # determine the number of elements included in the role array (how many tenancy chains)
   $numRoleElements = @roleArray;
 
-  # if ($telephoneNumber eq "undef") {
+   if ($telephoneNumber eq "undef") {
 
-      # if ($numRoleElements == 0) {
+       if ($numRoleElements == 0) {
 
           # $mesg = $ldapHandle->modify($DN, changes => [
                   # replace => [ 'sn'               => "$sn" ],
@@ -1039,8 +1042,34 @@ sub processModAction {
                   # replace => [ 'uid'              => "$uid" ],                   
                   # replace => [ 'mail'             => "$mail" ] ] );                   
 
-      # } else { 
+       } else { 
+          # build the JSON object to pass to the API
+          $body = {
+              profile => {
+                  login => $mail,
+                  firstName => $givenName,
+                  lastName => $sn,
+                  email => $mail,
+                  sbacUUID => $sbacuuid,
+                  sbacTenancyChain => [ @roleArray ]
+              }
+          };
+          
+          # convert the $body into a proper JSON object
+          my $body_json = JSON->new->utf8->encode($body);
+          if ($consoleOutput == 1) { print "JSON: $body_json\n"; }
+          
+          my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIModEndpoint . $mail);
+          $req->header('Accept' => 'application/json');
+          $req->header('Content-Type' => 'application/json');
+          $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
+          $req->content($body_json);
+          
+          my $lwp = LWP::UserAgent->new; 
+          $lwp->ssl_opts(verify_hostname => 0);         
+          my $res = $lwp->request($req)->as_string;
 
+          if ($consoleOutput == 1) { print "API Response: $res\n"; }
           # $mesg = $ldapHandle->modify($DN, changes => [
                   # replace => [ 'sn'               => "$sn" ],
                   # replace => [ 'givenName'        => "$givenName" ] ,
@@ -1048,9 +1077,9 @@ sub processModAction {
                   # replace => [ 'uid'              => "$uid" ],                   
                   # replace => [ 'mail'             => "$mail" ],                   
                   # replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
-      # }
+       }
 
-  # } else {
+   } else {
 
       # if ($numRoleElements == 0) {
 
@@ -1073,7 +1102,7 @@ sub processModAction {
                   # replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
       # }
 
-  # }
+   }
   
   # if ($mesg->code) {
 
@@ -1089,7 +1118,7 @@ sub processModAction {
 
   # } else {
 
-      # $modCount++;        # Keep track of how many modifications were made to the OpenDJ server
+       $modCount++;        # Keep track of how many modifications were made to the OpenDJ server
   # }
 
   # initialize the role array after processing; use the undef() to free up memory
@@ -1151,8 +1180,7 @@ sub processSyncAction {
   # Search for the account in the OpenDJ server
   #my $mesg = $ldapHandle->search( base => "$base", scope => "$scope", filter => "$searchString", attrs => $attrs);
 
-  # if ($mesg->code) {
-
+  #if ($mesg->code) {
       # $errCount++;    # Keep track of how many errors we have incurred
 
       # # Send message to log file indicating error
@@ -1163,7 +1191,7 @@ sub processSyncAction {
       # $errorEntry = "SYNC:".$sbacuuid.":".ldap_error_text($mesg->code);
       # push(@errorData, $errorEntry);
 
-  # } else {
+   #} else {
 
       # $syncCount++;       # Keep track of how many synchroniation operations were made to the OpenDJ server
 
@@ -1177,7 +1205,7 @@ sub processSyncAction {
       # } elsif ($mesg->count == 1) { 
 
           # # Process this as a MOD Action  
-          # processModAction(\@syncArray);
+           processModAction(\@syncArray);
 
       # } else {
 
@@ -1195,7 +1223,7 @@ sub processSyncAction {
 
       # }
 
-  # }
+   #}
 
   # initialize the array after processing; use the undef() to free up memory
   undef(@syncArray);
@@ -1672,9 +1700,8 @@ sub updateLog {
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
   my $yyyymmdd = sprintf "%.4d%.2d%.2d", $year+1900, $mon+1, $mday;
 
-  #my $logFile  = "/opt/scripts/drc/logs/sbaclogfile-$yyyymmdd";      # log File Name
-  my $logFile  = "/Users/alexdean/Desktop/SmarterBalanced/okta/logs/sbaclogfile-$yyyymmdd";      # log File Name
-
+  my $logFile  = "/opt/scripts/drc/logs/sbaclogfile-$yyyymmdd";      # log File Name
+  
   # open log file (make sure script user has permissions to write to directory)
   open (LOGFILE, ">>$logFile") or die "\nUnable to open log file ($logFile).  $!\n\n";
   
