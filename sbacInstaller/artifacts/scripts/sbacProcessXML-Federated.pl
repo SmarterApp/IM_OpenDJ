@@ -104,8 +104,8 @@ my $testXMLFile        = 0;                                # (0) - 0 = processin
 
 # Environmental Variables - these variables may be customized to reflect your environment
 
-my $inputXMLFileDir    = "[XML FILE DIR]";                 # full path where the XML files are uploaded
-my $processedFileDir   = "[PROCESS FILE DIR]";             # full path where the XML files are stored after processing
+my $inputXMLFileDir    = "/opt/dropboxes/amplify";                 # full path where the XML files are uploaded
+my $processedFileDir   = "/opt/scripts/sbacXMLFiles";             # full path where the XML files are stored after processing
 my $httpResponseServer = "[CALLBACK-URL]";                 # HTTP server URL for response
 my $ldapHost           = "[LDAP-HOST]";                    # host name of the OpenDJ server
 my $ldapPort           = "[LDAP-PORT]";                    # port number of the OpenDJ server
@@ -113,11 +113,11 @@ my $ldapBindDN         = "[BIND-DN]";                      # administrative user
 my $ldapBindPass       = "[BIND-PASSWORD]";                # password for the administrative user
 my $ldapBaseDN         = "[BASEDN]";                       # path in LDAP Server directory tree where the users may be found
 my $ldapTimeout        = "10";                             # how long to wait (in seconds) for a connection to the LDAP server before timing out
-my $fedAPIHost         = "[FEDERATED-API-HOST]";           # host name of the Federated SSO server
-my $fedAPIAuthKey      = "[FEDERATED-API-AUTH-KEY]";       # authorization key for the Federated SSO administrative user
-my $fedAPIAddEndpoint  = "[FEDERATED-ADD]";                # Federated SSO endpoint for adding an object
-my $fedAPIModEndpoint  = "[FEDERATED-MOD]"                 # Federated SSO endpoint for modifying an object
-my $fedAPIDelEndpoint  = "[FEDERATED-DEL]"                 # Federated SSO endpoint for deleting an object
+my $fedAPIHost         = "https://smarterbalanced.oktapreview.com";           # host name of the Federated SSO server
+my $fedAPIAuthKey      = "";       # authorization key for the Federated SSO administrative user
+my $fedAPIAddEndpoint  = "/api/v1/users?activate=false";                # Federated SSO endpoint for adding an object
+my $fedAPIModEndpoint  = "/api/v1/users/"                 # Federated SSO endpoint for modifying an object
+my $fedAPIDelEndpoint  = "/api/v1/users/"                 # Federated SSO endpoint for deleting an object
 #my $fedAPISyncEndpoint = "[FEDERATED-SYNC]"                # Federated SSO endpoint for syncing an object
 
 # Email Variables - these variables are specific to subroutines which generate emails
