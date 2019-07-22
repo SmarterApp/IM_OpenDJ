@@ -116,9 +116,9 @@ my $ldapTimeout        = "10";                             # how long to wait (i
 my $fedAPIHost         = "https://smarterbalanced.oktapreview.com";           # host name of the Federated SSO server
 my $fedAPIAuthKey      = "";       # authorization key for the Federated SSO administrative user
 my $fedAPIAddEndpoint  = "/api/v1/users?activate=false";                # Federated SSO endpoint for adding an object
-my $fedAPIModEndpoint  = "/api/v1/users/"                 # Federated SSO endpoint for modifying an object
-my $fedAPIDelEndpoint  = "/api/v1/users/"                 # Federated SSO endpoint for deleting an object
-#my $fedAPISyncEndpoint = "[FEDERATED-SYNC]"                # Federated SSO endpoint for syncing an object
+my $fedAPIModEndpoint  = "/api/v1/users/";                 # Federated SSO endpoint for modifying an object
+my $fedAPIDelEndpoint  = "/api/v1/users/";                 # Federated SSO endpoint for deleting an object
+my $fedAPISyncEndpoint = "/api/v1/users/";                # Federated SSO endpoint for syncing an object
 
 # Email Variables - these variables are specific to subroutines which generate emails
 
