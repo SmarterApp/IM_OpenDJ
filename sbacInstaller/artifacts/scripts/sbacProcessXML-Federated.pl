@@ -117,7 +117,7 @@ my $fedAPIHost         = "[FEDERATED-API-HOST]";           # host name of the Fe
 my $fedAPIAuthKey      = "[FEDERATED-API-AUTH-KEY]";       # authorization key for the Federated SSO administrative user
 my $fedAPIAddEndpoint  = "[FEDERATED-ADD]";                # Federated SSO endpoint for adding an object
 my $fedAPIModEndpoint  = "[FEDERATED-MOD]"                 # Federated SSO endpoint for modifying an object
-#my $fedAPIDelEndpoint  = "[FEDERATED-DEL]"                 # Federated SSO endpoint for deleting an object
+my $fedAPIDelEndpoint  = "[FEDERATED-DEL]"                 # Federated SSO endpoint for deleting an object
 #my $fedAPISyncEndpoint = "[FEDERATED-SYNC]"                # Federated SSO endpoint for syncing an object
 
 # Email Variables - these variables are specific to subroutines which generate emails
@@ -217,8 +217,6 @@ if ($xmlFileName =~ /testfile/) {
 
 # open the XML file for reading
 open(XMLFILE, $xmlFileName) or die "Error!  Could not open XML file ($xmlFileName) - $!";
-
-# Set the Federated SSO API object, host, and header
 
 # Deprecate ldap connection
 # Open a TCP connection with the OpenDJ Server, timeout if no response in 10s
@@ -655,7 +653,9 @@ sub processAddAction {
   # Add the new user to the Federated SSO
   if ($telephoneNumber eq "undef") {
 
-      if ($numRoleElements == 0) {
+      if ($numRoleElements == 0) { 
+          # if there are no role elements, do not pass anything to the federated API
+          # deprecate LDAP communication
           #$mesg = $ldapHandle->add($DN, attr => [
           #        'sn'               => "$sn",
           #        'givenName'        => "$givenName",
@@ -680,7 +680,7 @@ sub processAddAction {
               }
           };
           
-          # convert the $body into a proper JSON object
+          # convert the $body variable into a proper JSON object
           my $body_json = JSON->new->utf8->encode($body);
           if ($consoleOutput == 1) { print "JSON: $body_json\n"; }
           
@@ -696,6 +696,7 @@ sub processAddAction {
 
           if ($consoleOutput == 1) { print "API Response: $res\n"; }
           
+          # deprecate LDAP communication
           # $mesg = $ldapHandle->add($DN, attr => [
                   # 'sn'               => "$sn",
                   # 'givenName'        => "$givenName",
@@ -710,9 +711,8 @@ sub processAddAction {
       }
 
   } else {
-
-      if ($numRoleElements == 0) {
-
+      # if there are no role elements, do not pass anything to the API  
+      if ($numRoleElements == 0) { 
           # $mesg = $ldapHandle->add($DN, attr => [
                   # 'sn'               => "$sn",
                   # 'givenName'        => "$givenName",
@@ -726,7 +726,6 @@ sub processAddAction {
                   # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
 
       } else {
-
           # $mesg = $ldapHandle->add($DN, attr => [
                   # 'sn'               => "$sn",
                   # 'givenName'        => "$givenName",
@@ -743,6 +742,7 @@ sub processAddAction {
       }
   }
 
+  # deprecate any message processing from LDAP
   # if ($mesg->code) {
 
       # $errCount++;    # Keep track of how many errors we have incurred
@@ -822,11 +822,31 @@ sub processDelAction {
       }
 
   }
+  #############################################
+  # Delete the user from the Federated Server #
+  #############################################
+  my $req = HTTP::Request->new("DELETE", $fedAPIHost . $fedAPIDelEndpoint);
+  $req->header('Accept' => 'application/json');
+  $req->header('Content-Type' => 'application/json');
+  $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
+          
+  my $lwp = LWP::UserAgent->new; 
+  $lwp->ssl_opts(verify_hostname => 0);         
+  my $res = $lwp->request($req)->as_string;
+
+  if ($consoleOutput == 1) { print "API Response: $res\n"; }
+  
+  # for the Federated SSO solution, an initial DELETE only deactivates the account.
+  # a second DELETE needs to be passed in order to permanetly delete the account.
+  $lwp->ssl_opts(verify_hostname => 0);         
+  my $res = $lwp->request($req)->as_string;
+
+  if ($consoleOutput == 1) { print "API Response: $res\n"; }
 
   ##########################################
   # Delete the user from the OpenDJ Server #
   ##########################################
-
+  # deprecate delete from OpenDJ server
   # Delete the user from the OpenDJ server
   #$mesg = $ldapHandle->delete($DN);
 
@@ -889,7 +909,7 @@ sub processModAction {
   # defining the Federated SSO attributes
   my $body = "";
   
-  my $processingRoleFlag = 0;     # Flag to indicate if we are currently processing data associated with a user's role (tenancy chain)
+  my $processingRoleFlag = 0;   # Flag to indicate if we are currently processing data associated with a user's role (tenancy chain)
   my $sbacTenancyChain = "";    # The actual tenancy chain
   my $numRoleElements  = 0;     # The number of elements in the @roleArray
   my @roleArray;                # Array for storing role components (tenancy chain)
@@ -1015,11 +1035,11 @@ sub processModAction {
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "\nDN:  $DN\n"; }
 
-  ##############################################
-  # Update the OpenDJ Server with the new user #
-  ##############################################
+  #####################################################
+  # Update the Federated SSO Server with the new user #
+  #####################################################
 
-  # Update the user in the OpenDJ server
+  # Update the user in the Federated SSO server
   
   # Note:  A modify operation DOES NOT change the following attributes:  sbacUUID, inetUserStatus, userPassword, or objectClass
   #        A change to sbacUUID causes a change in the DN; therefore a moddn() operation is required
@@ -1035,6 +1055,7 @@ sub processModAction {
 
        if ($numRoleElements == 0) {
 
+          # deprecate LDAP communication
           # $mesg = $ldapHandle->modify($DN, changes => [
                   # replace => [ 'sn'               => "$sn" ],
                   # replace => [ 'givenName'        => "$givenName" ] ,
@@ -1070,6 +1091,7 @@ sub processModAction {
           my $res = $lwp->request($req)->as_string;
 
           if ($consoleOutput == 1) { print "API Response: $res\n"; }
+          # deprecate LDAP communication
           # $mesg = $ldapHandle->modify($DN, changes => [
                   # replace => [ 'sn'               => "$sn" ],
                   # replace => [ 'givenName'        => "$givenName" ] ,
@@ -1080,7 +1102,7 @@ sub processModAction {
        }
 
    } else {
-
+      # if no roles, do not update any account in Federated SSO 
       # if ($numRoleElements == 0) {
 
           # $mesg = $ldapHandle->modify($DN, changes => [
@@ -1169,13 +1191,13 @@ sub processSyncAction {
 
   }
 
-  if ($consoleOutput == 1) { print "\nAttempting to Search on sbacuuid=$sbacuuid\n"; }
+  #if ($consoleOutput == 1) { print "\nAttempting to Search on sbacuuid=$sbacuuid\n"; }
 
   # define ldap search parameters
-  my $base  = $ldapBaseDN;                  # starting point of search
-  my $scope = "sub";                        # how far down in the tree to search (options, "sub", "base", and "one")
-  my $searchString = "sbacuuid=$sbacuuid";  # the filter to use to locate the user
-  my $attrs = [ 'dn' ];                     # a comma-delimited array of attributes to return in the search
+  #my $base  = $ldapBaseDN;                  # starting point of search
+  #my $scope = "sub";                        # how far down in the tree to search (options, "sub", "base", and "one")
+  #my $searchString = "sbacuuid=$sbacuuid";  # the filter to use to locate the user
+  #my $attrs = [ 'dn' ];                     # a comma-delimited array of attributes to return in the search
 
   # Search for the account in the OpenDJ server
   #my $mesg = $ldapHandle->search( base => "$base", scope => "$scope", filter => "$searchString", attrs => $attrs);
@@ -1942,6 +1964,3 @@ sub processEarlyExit {
   die ("$textFormattedErrorMessage\n");
 
 }    # end of processEarlyExit
-
-
-
