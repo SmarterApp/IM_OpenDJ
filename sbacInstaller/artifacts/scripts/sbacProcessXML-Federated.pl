@@ -109,7 +109,6 @@ my $fedActivateNewUser = 0;                                # (0) - 0 = new user 
 
 # Environmental Variables - these variables may be customized to reflect your environment
 
-<<<<<<< HEAD
 my $logFile                 = "/opt/scripts/logs/federated-sbaclogfile-$yyyymmdd";      # log File Name
 my $inputXMLFileDir         = "/opt/dropboxes/amplify";                                 # full path where the XML files are uploaded
 my $processedFileDir        = "/opt/scripts/sbacXMLFiles";                              # full path where the XML files are stored after processing
@@ -121,23 +120,6 @@ my $fedAPIDoNotActivateUser = "?activate=false";                                
 my $fedAPISuspendEndpoint   = "/lifecycle/suspend";                                     # Federated SSO endpoint for suspending an object. Url pattern: /api/v1/users/${userid}/lifecycle/suspend
 my $fedAPIUnsuspendEndpoint = "/lifecycle/unsuspend";                                   # Federated SSO endpoint for unsuspending an object. Url pattern: /api/v1/users/${userid}/lifecycle/unsuspend
 my $fedAPIResetPwdEndpoint  = "/lifecycle/reset_password";                              # Federated SSO endpoint for resetting a users password. Url pattern: /api/v1/users/${userid}/lifecycle/reset_password
-=======
-my $inputXMLFileDir    = "/opt/dropboxes/amplify";                 # full path where the XML files are uploaded
-my $processedFileDir   = "/opt/scripts/sbacXMLFiles";             # full path where the XML files are stored after processing
-my $httpResponseServer = "[CALLBACK-URL]";                 # HTTP server URL for response
-my $ldapHost           = "[LDAP-HOST]";                    # host name of the OpenDJ server
-my $ldapPort           = "[LDAP-PORT]";                    # port number of the OpenDJ server
-my $ldapBindDN         = "[BIND-DN]";                      # administrative user on the OpenDJ server for managing accounts (i.e. cn=XXX Admin)
-my $ldapBindPass       = "[BIND-PASSWORD]";                # password for the administrative user
-my $ldapBaseDN         = "[BASEDN]";                       # path in LDAP Server directory tree where the users may be found
-my $ldapTimeout        = "10";                             # how long to wait (in seconds) for a connection to the LDAP server before timing out
-my $fedAPIHost         = "https://smarterbalanced.oktapreview.com";           # host name of the Federated SSO server
-my $fedAPIAuthKey      = "";       # authorization key for the Federated SSO administrative user
-my $fedAPIAddEndpoint  = "/api/v1/users?activate=false";                # Federated SSO endpoint for adding an object
-my $fedAPIModEndpoint  = "/api/v1/users/";                 # Federated SSO endpoint for modifying an object
-my $fedAPIDelEndpoint  = "/api/v1/users/";                 # Federated SSO endpoint for deleting an object
-my $fedAPISyncEndpoint = "/api/v1/users/";                # Federated SSO endpoint for syncing an object
->>>>>>> c236319e4c57a483ba5f642b525429de1ae9ad78
 
 # Email Variables - these variables are specific to subroutines which generate emails
 
@@ -324,11 +306,11 @@ if ($consoleOutput == 1) {
     print "Users Modified:      $modCount\n";
     print "Users Deleted:       $delCount\n";
     print "Passwords Reset:     $resetCount\n";
-    print "Passwords Changed:   $pwdChgCount\n";
+    #print "Passwords Changed:   $pwdChgCount\n";
     print "Users Locked:        $lockCount\n";
     print "Users Unlocked:      $unlockCount\n";
     print "Users Synchronized:  $syncCount\n";
-    print "Users Notified:      $notifyCount\n";
+    #print "Users Notified:      $notifyCount\n";
     print "\n";
 }
 
@@ -1159,8 +1141,7 @@ return 1;
 ##########################################################################################################
 # Subroutine:  processLockAction()                                                                       #
 #                                                                                                        #
-# This subroutine locks a user's account.  A lock operation essentially sets the value of the user's     #
-# inetUserStatus to 'Inactive'.                                                                          #
+# This subroutine locks a user's account.  The account must be active in the Federated system.           #
 ##########################################################################################################
 
 sub processLockAction {
@@ -1219,8 +1200,7 @@ return 1;
 ##########################################################################################################
 # Subroutine:  processUnlockAction()                                                                     #
 #                                                                                                        #
-# This subroutine unlocks a user's account.  An unlock operation essentially sets the value of the user's#
-# inetUserStatus to 'Active'.                                                                            #
+# This subroutine unlocks a user's account.  The account must be active in the Federated system.         #
 ##########################################################################################################
 
 sub processUnlockAction {
