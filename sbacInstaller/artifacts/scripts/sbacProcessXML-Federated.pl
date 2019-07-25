@@ -1059,7 +1059,7 @@ return 1;
 sub processPwdChangeAction {
 
   my $DN = "";     # User's Distinguished Name (constructed from $sbacuuid and constants)
-
+  
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing SETPWD Action\n"; }
 
@@ -1151,7 +1151,9 @@ return 1;
 sub processLockAction {
 
   my $DN = "";     # User's Distinguished Name (constructed from $sbacuuid and constants)
-
+  my $mail = "";
+  my $uid = "";
+  
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing LOCK Action\n"; }
   updateLog("INFO", "\"In Subroutine, processing LOCK Action\"");
@@ -1165,7 +1167,7 @@ sub processLockAction {
   foreach (@lockUserArray) {
 
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
-          $DN  = "sbacUUID=$1,$ldapBaseDN";
+          #$DN  = "sbacUUID=$1,$ldapBaseDN";
       } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail, uid)
 
           $mail = translateCER($1);
@@ -1210,7 +1212,9 @@ return 1;
 sub processUnlockAction {
 
   my $DN = "";     # User's Distinguished Name (constructed from $sbacuuid and constants)
-
+  my $mail = "";
+  my $uid = "";
+  
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing UNLOCK Action\n"; }
   updateLog("INFO", "\"In Subroutine, process UNLOCK Action\"");
@@ -1225,7 +1229,7 @@ sub processUnlockAction {
 
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
 
-          $DN  = "sbacUUID=$1,$ldapBaseDN";
+          #$DN  = "sbacUUID=$1,$ldapBaseDN";
 
       } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail, uid)
 
