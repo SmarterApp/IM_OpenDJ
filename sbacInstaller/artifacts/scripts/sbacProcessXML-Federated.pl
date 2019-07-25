@@ -109,6 +109,7 @@ my $fedActivateNewUser = 0;                                # (0) - 0 = new user 
 
 # Environmental Variables - these variables may be customized to reflect your environment
 
+my $yyyymmdd                = "";                                                       # year, month, day for log file name
 my $logFile                 = "/opt/scripts/logs/federated-sbaclogfile-$yyyymmdd";      # log File Name
 my $inputXMLFileDir         = "/opt/dropboxes/amplify";                                 # full path where the XML files are uploaded
 my $processedFileDir        = "/opt/scripts/sbacXMLFiles";                              # full path where the XML files are stored after processing
@@ -455,7 +456,7 @@ sub processAddAction {
           # when creating the distinguished name
           $sbacuuid =~ s/(["+,;<>\\])/\\\1/g;
 
-          $DN  = "sbacUUID=$sbacuuid,$ldapBaseDN";
+          #$DN  = "sbacUUID=$sbacuuid,$ldapBaseDN";
 
           # return the sbacuuid attribute to its original value
           $sbacuuid = $oldSBACuuid;
@@ -618,11 +619,12 @@ sub processAddAction {
           if ($consoleOutput == 1) { print "JSON: $body_json\n"; }
           updateLog("INFO", "\"JSON object to pass to Federated system: $body_json \"");
           
+          my $req = "";
           if ($fedActivateNewUser == 0) {
               # do not active the new user
-              my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . $fedAPIDoNotActivateUser);
+              $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . $fedAPIDoNotActivateUser);
           } else {
-              my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint);
+              $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint);
           }
           $req->header('Accept' => 'application/json');
           $req->header('Content-Type' => 'application/json');
@@ -658,7 +660,9 @@ return 1;
 sub processDelAction {
 
   my $DN = "";     # User's Distinguished Name (constructed from $sbacuuid and constants)
-
+  my $mail = "";   # User's email
+  my $uid = "";
+  
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing DELETE Action\n"; }
   updateLog("INFO", "\"In Subroutine, processing DELETE Action\"");
@@ -671,7 +675,7 @@ sub processDelAction {
 
   foreach (@delUserArray) {
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
-          $DN  = "sbacUUID=$1,$ldapBaseDN";
+          #$DN  = "sbacUUID=$1,$ldapBaseDN";
       } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail, uid)
           $mail = translateCER($1);
           $uid  = $mail;
@@ -762,7 +766,7 @@ sub processModAction {
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
 
           $sbacuuid = $1;
-          $DN  = "sbacUUID=$sbacuuid,$ldapBaseDN";
+          #$DN  = "sbacUUID=$sbacuuid,$ldapBaseDN";
 
           if ($consoleOutput == 1) { print "\nDN:  $DN\n"; }
 
@@ -1004,7 +1008,7 @@ sub processResetAction {
 
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
 
-          $DN  = "sbacUUID=$1,$ldapBaseDN";
+          #$DN  = "sbacUUID=$1,$ldapBaseDN";
 
       } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail)
 
@@ -1074,7 +1078,7 @@ sub processPwdChangeAction {
 
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
 
-          $DN  = "sbacUUID=$1,$ldapBaseDN";
+          #$DN  = "sbacUUID=$1,$ldapBaseDN";
 
       } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail)
 
@@ -1383,7 +1387,7 @@ sub updateLog {
 
   # get current day/time
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
-  my $yyyymmdd = sprintf "%.4d%.2d%.2d", $year+1900, $mon+1, $mday;
+  $yyyymmdd = sprintf "%.4d%.2d%.2d", $year+1900, $mon+1, $mday;
   
   # open log file (make sure script user has permissions to write to directory)
   open (LOGFILE, ">>$logFile") or die "\nUnable to open log file ($logFile).  $!\n\n";
