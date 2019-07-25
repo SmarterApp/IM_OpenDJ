@@ -1,8 +1,6 @@
 #!/usr/bin/perl
 
 use strict;
-use Net::LDAP;
-use Net::LDAP::Util qw(ldap_error_text);
 use Net::SMTP;
 use File::Copy qw(move);
 use LWP::UserAgent;
@@ -15,27 +13,34 @@ use JSON;
 # Distributed under the AIR Open Source License, Version 1.0                                      #
 # See https://bitbucket.org/sbacoss/eotds/wiki/AIR_Open_Source_License                            #
 #                                                                                                 #
-# This script takes an XML file as input and updates the OpenDJ server with the actions           #
-# contained in the XML file.  The format of each action is defined as follows:                    #
+# This script takes an XML file as input and updates the Federated system with the actions        #
+# contained in the XML file.  This script is based on the OpenDJ script which uses the same       #
+# actions. This script and the OpenDJ script are meant to be used together and operate on the     #
+# same set of XML files. The OpenDJ script operates on the files first, and process flows to      #
+# this script. Once this script completes, the moveXMLFile operation is executed.                 #
 #                                                                                                 #
 # <User Action="action">                                                                          #
 #                                                                                                 #
 # Where "action" can be defined as follows:                                                       #
 #                                                                                                 #
-#     ADD    - add a new Smarter Balanced user to the directory server                            #
-#     MOD    - modify an existing user in the directory server                                    #
-#     RESET  - reset the password of an existing user in the directory server                     #
-#     SETPWD - set a user's password to a known value                                             #
-#     LOCK   - lock an existing user's account in the directory server                            #
-#     UNLOCK - unlock an existing user's account in the directory server                          #
-#     DEL    - delete a user from the directory server                                            #
+#     ADD    - add a new Smarter Balanced user to the Federated system                            #
+#     MOD    - modify an existing user in the Federated system                                    #
+#     RESET  - reset the password of an existing user in the Federated system                     #
+#     SETPWD - set a user's password to a known value  [IGNORE THIS ACTION]                       #
+#     LOCK   - lock an existing user's account in the Federated system                            #
+#     UNLOCK - unlock an existing user's account in the Federated system                          #
+#     DEL    - delete a user from the Federated system                                            #
 #     SYNC   - MOD an existing record or ADD a new record to the directory; based on XML data     #
-#     NOTIFY - (Operational) include this email address on any script notifications               #
+#     NOTIFY - (Operational) include this email address on any script notifications [IGNORE]      #
 #                                                                                                 #
 # Author: Bill Nelson (Identity Fusion, Inc.) - bill.nelson@identityfusion.com                    #
+#         Alex Dean (Smarter Balanced) - alex.dean@smarterbalanced.org                            #
 #                                                                                                 #
 # Change Log:                                                                                     #
 #                                                                                                 #
+#  07/24/2019 - Modified the processAddAction, processModAction, processDelAction,                #
+#               processLockAction, processUnlockAction, processResetAction, and processSyncAction #
+#               for interacting  with a Federated system                                          #
 #  11/27/2015 - Modified processPasswordReset() to allow optional app defined message to be       #
 #               included in password reset message.                                               #
 #  02/27/2015 - Added translation of encoded CERs to Tenancy Chain received through XML           #
@@ -92,7 +97,6 @@ use JSON;
 #                                                                                                 #
 ###################################################################################################
 
-
 # Control Variables - these variables control the flow and/or output in the script (defaults shown in parentheses)
 
 my $consoleOutput      = 1;                                # (0) - 0 = disable console messages;   1 = enable console messages
@@ -101,9 +105,23 @@ my $sendEmailResponse  = 0;                                # (1) - 0 = do not se
 my $extendedLogging    = 1;                                # (1) - 0 = disable extended logging;   1 = enable extended logging
 my $emailOverride      = 0;                                # (0) - 0 = use email addr from file;   1 = explicitly specify email addr
 my $testXMLFile        = 0;                                # (0) - 0 = processing real XML file;   1 = processing test XML file
+my $fedActivateNewUser = 0;                                # (0) - 0 = new user account is not activated when created; 1 = activate new user account
 
 # Environmental Variables - these variables may be customized to reflect your environment
 
+<<<<<<< HEAD
+my $logFile                 = "/opt/scripts/logs/federated-sbaclogfile-$yyyymmdd";      # log File Name
+my $inputXMLFileDir         = "/opt/dropboxes/amplify";                                 # full path where the XML files are uploaded
+my $processedFileDir        = "/opt/scripts/sbacXMLFiles";                              # full path where the XML files are stored after processing
+my $httpResponseServer      = "[CALLBACK-URL]";                                         # HTTP server URL for response
+my $fedAPIHost              = "https://smarterbalanced.oktapreview.com";                # host name of the Federated SSO server
+my $fedAPIAuthKey           = "[FEDERATED-API-AUTH-KEY]";                               # authorization key for the Federated SSO administrative user
+my $fedAPIUserEndpoint      = "/api/v1/users";                                          # Federated SSO endpoint for interacting with an object.
+my $fedAPIDoNotActivateUser = "?activate=false";                                        # Federated SSO user parameter to not activate a user account
+my $fedAPISuspendEndpoint   = "/lifecycle/suspend";                                     # Federated SSO endpoint for suspending an object. Url pattern: /api/v1/users/${userid}/lifecycle/suspend
+my $fedAPIUnsuspendEndpoint = "/lifecycle/unsuspend";                                   # Federated SSO endpoint for unsuspending an object. Url pattern: /api/v1/users/${userid}/lifecycle/unsuspend
+my $fedAPIResetPwdEndpoint  = "/lifecycle/reset_password";                              # Federated SSO endpoint for resetting a users password. Url pattern: /api/v1/users/${userid}/lifecycle/reset_password
+=======
 my $inputXMLFileDir    = "/opt/dropboxes/amplify";                 # full path where the XML files are uploaded
 my $processedFileDir   = "/opt/scripts/sbacXMLFiles";             # full path where the XML files are stored after processing
 my $httpResponseServer = "[CALLBACK-URL]";                 # HTTP server URL for response
@@ -119,6 +137,7 @@ my $fedAPIAddEndpoint  = "/api/v1/users?activate=false";                # Federa
 my $fedAPIModEndpoint  = "/api/v1/users/";                 # Federated SSO endpoint for modifying an object
 my $fedAPIDelEndpoint  = "/api/v1/users/";                 # Federated SSO endpoint for deleting an object
 my $fedAPISyncEndpoint = "/api/v1/users/";                # Federated SSO endpoint for syncing an object
+>>>>>>> c236319e4c57a483ba5f642b525429de1ae9ad78
 
 # Email Variables - these variables are specific to subroutines which generate emails
 
@@ -128,7 +147,6 @@ my $emailAddrOverride = "[OVERRIDE-EMAIL]";                # when $emailOverride
 my $adminEmail        = "[ADMIN-EMAIL]";                   # email address of user who is monitoring script results
 my $emailServer       = "[EMAIL-SERVER]";                  # email server (i.e. mail.foo.com:10025)
 my $defaultPassword   = "[DEFAULT-PASSWORD]";              # default password for test users
-
 
 # Script Specific Variables - these are used within the processing of the script
 
@@ -168,12 +186,11 @@ my $dataFileExists = 1;    # used during early exit from this script; 1 = move d
 my $startTime = time;  # capture the start time of this script
 
 # Send message to log file indicating start of file processing
-updateLog("INFO", "\"Smarter Balanced user processing initiated.\"");
+updateLog("INFO", "\"Smarter Balanced user processing initiated for ART to Federated system.\"");
 
 # verify number of input parameters equals 1 (the filename to process)
 my $numArgs = $#ARGV + 1;
 if ($numArgs ==0) {
-
     # Process an early exit from the script
     my $errorMessage = "Missing input file parameter.<br><br>Usage is:  $0 {XML filename}.<br><br>";
     # update the flag to indicate that the specified data file does not exist
@@ -190,15 +207,12 @@ updateLog("INFO", "\"Input file = $xmlFileName\"");
 
 # determine if data file exists
 if (!(-e $xmlFileName)) {
-
     # Process an early exit from the script
     my $errorMessage = "Invalid Filename ($xmlFileName).  File Does Not Exist!<br><br>";
-
     # update the flag to indicate that the specified data file does not exist
     $dataFileExists = 0;
 
     processEarlyExit($errorMessage,$dataFileExists);
-
 }
 
 # print message to console (if flag enabled)
@@ -206,7 +220,7 @@ if ($consoleOutput == 1) { print "\nProcessing Input File: $xmlFileName\n"; }
 
 # if the filename contains the string "testfile" anywhere in it, then this is a file
 # to be used for testing purposes only; i.e. email should not be sent to the end user
-if ($xmlFileName =~ /testfile/) { 
+if ($xmlFileName =~ /testfile/) {     
     if ($consoleOutput == 1) { 
         print "\nProcessing Input File: This file is used for testing purposes ONLY!"; 
         print "\nProcessing Input File: End-user email has been disabled.  End-user password is set to \"password\" for ADD operations.\n\n"; 
@@ -217,23 +231,6 @@ if ($xmlFileName =~ /testfile/) {
 
 # open the XML file for reading
 open(XMLFILE, $xmlFileName) or die "Error!  Could not open XML file ($xmlFileName) - $!";
-
-# Deprecate ldap connection
-# Open a TCP connection with the OpenDJ Server, timeout if no response in 10s
-#my $ldapHandle = Net::LDAP->new("$ldapHost", port=>$ldapPort, timeout=>$ldapTimeout) or die "$@";
-
-# Deprecate ldap binding
-# Bind to the directory server with the credentials provided
-#my $mesg = $ldapHandle->bind("$ldapBindDN", password=>"$ldapBindPass");
-
-# Deprecate the ldap bind message
-# check for valid bind operation or print error if unable to bind
-#if ($mesg->code) {
-
-    # Process an early exit from the script
-#    my $errorMessage = "Cannot bind to the directory server: $ldapHost:$ldapPort".ldap_error_text($mesg->code)."<br><br>";
-#    processEarlyExit($errorMessage,$dataFileExists);
-#}
 
 my $line = "";
 foreach $line (<XMLFILE>)  {   
@@ -251,27 +248,20 @@ foreach $line (<XMLFILE>)  {
     $lineCount++;
 
     if ($line =~ /<User Action="(.*)">/) {       # beginning of action
-
         # terminate processing if we detect another action before processing
         # of the current action is completed
-        if ($xmlUserParseFlag == 1) {
-
+        if ($xmlUserParseFlag == 1) {            
            # Process an early exit from the script
            my $errorMessage = "New action detected before current action completed.  Corrupt XML file.<br><br>";
-           processEarlyExit($errorMessage,$dataFileExists);
-
-        } else {
-
+           processEarlyExit($errorMessage,$dataFileExists);         
+        } else {            
             $xmlAction = $1;
             $xmlUserParseFlag = 1;
 
             # print message to console (if flag enabled)
             if ($consoleOutput == 1) { print "Processing Action: $xmlAction\n"; }
-
         }
-
     } elsif ($line =~ /<\/User>/) {              # end of action
-
         $userCount++;
         $xmlUserParseFlag = 0;
 
@@ -280,6 +270,7 @@ foreach $line (<XMLFILE>)  {
 
         # print message to console (if flag enabled)
         if ($consoleOutput == 1) { print "Processing Action: [$xmlAction]\n"; }
+        updateLog("INFO", "\"Processing Action: [$xmlAction]\"");
 
         if    ($xmlAction eq "ADD")    { processAddAction(\@userData);  } 
         elsif ($xmlAction eq "MOD")    { processModAction(\@userData);  } 
@@ -287,33 +278,24 @@ foreach $line (<XMLFILE>)  {
         elsif ($xmlAction eq "LOCK")   { processLockAction(\@userData); }
         elsif ($xmlAction eq "UNLOCK") { processUnlockAction(\@userData); }
         elsif ($xmlAction eq "RESET")  { processResetAction(\@userData); }
-        elsif ($xmlAction eq "SETPWD") { processPwdChangeAction(\@userData); }
+        #elsif ($xmlAction eq "SETPWD") { processPwdChangeAction(\@userData); }
         elsif ($xmlAction eq "SYNC")   { processSyncAction(\@userData); }
-        elsif ($xmlAction eq "NOTIFY") { processNotifyAction(\@userData); }
-        else  { 
-
-                 # Process an early exit from the script
-                 my $errorMessage = "Invalid User Action ($xmlAction) Detected!<br><br>";
-                 processEarlyExit($errorMessage,$dataFileExists);
-
+        #elsif ($xmlAction eq "NOTIFY") { processNotifyAction(\@userData); }
+        else  {             
+            # Process an early exit from the script
+            my $errorMessage = "Invalid User Action ($xmlAction) Detected!<br><br>";
+            processEarlyExit($errorMessage,$dataFileExists);
         }
 
         # initialize the current array after processing; use the undef() to free up memory
         undef(@userData);
-        $xmlAction = ""; 
-
-    } elsif (($line =~ /<\?xml version/) || ($line =~ /<Users\>/) || ($line =~ /<\/Users\>/) || ($line =~ /^$/)) {    # ignore these lines
-
+        $xmlAction = "";         
+    } elsif (($line =~ /<\?xml version/) || ($line =~ /<Users\>/) || ($line =~ /<\/Users\>/) || ($line =~ /^$/)) {    # ignore these lines        
         # print message to console (if flag enabled)
-        if ($consoleOutput == 1) { print "Line Ignored:  $line\n"; }
-
-        ;
-
-    } else {
-
+        if ($consoleOutput == 1) { print "Line Ignored:  $line\n"; }        
+    } else {        
         # add the current line to the array if it is not a blank line
         push(@userData, $line);
-
     }
 }
 
@@ -323,13 +305,6 @@ if ($userCount == 1) {
 } else {
     updateLog("INFO", "\"$userCount user objects have been processed in the XML file.\"");
 }
-
-########## Close Connections ##########
-
-# Deprecate the ldap close connections
-# unbind and disconnect from the OpenDJ server
-#$ldapHandle->unbind;
-#$ldapHandle->disconnect;
 
 # close the XML file
 close(XMLFILE);
@@ -360,7 +335,6 @@ if ($consoleOutput == 1) {
 ########## HTTP Response ##########
 
 if ($sendHTTPResponse == 1) { 
-
     # Send notification to the HTTP Server
     # NOTE: a reference to the error array is passed, not the array, itself
     sendHTTPResponse(\@errorData);
@@ -372,9 +346,8 @@ my $endTime = time;                            # capture the end time of this sc
 my $processingTime = $endTime - $startTime;    # compute processing time
 
 if ($sendEmailResponse == 1) { 
-
     # notify the administrator of the process run results
-    my $emailSubject = "Smarter Balanced Data File Processed";
+    my $emailSubject = "Smarter Balanced Data File Processed - ART to Federated system";
     my $emailBody = "File name: $xmlFileName.<br><br>Total Procesing Time: $processingTime Seconds<br><br>Results: Total($userCount); Added($addCount); Modified($modCount); Deleted($delCount); Pass Reset($resetCount); Pass Change($pwdChgCount); Locked($lockCount); Unlocked($unlockCount); Synchronized($syncCount); Notify($notifyCount); Errors($errCount).<br><br>";
 
     if ($errCount > 0) {
@@ -394,7 +367,6 @@ if ($sendEmailResponse == 1) {
 
     # if extended logging is enabled, add additional details to log file
     if ( $extendedLogging == 1 ) { updateLog("INFO", "\"Administrator notified of run results ($adminEmail)\""); }
-
 }
 
 ########## Update Log File ##########
@@ -403,10 +375,8 @@ if ($sendEmailResponse == 1) {
 updateLog("INFO", "\"Results: Total($userCount); Add($addCount); Mod($modCount); Del($delCount); Pass Reset($resetCount); Pass Change($pwdChgCount); Lock($lockCount); Unlock($unlockCount); Synch($syncCount); Notify($notifyCount); Errors($errCount).\"");
 
 # Send messages to log file indicating processing has completed
-updateLog("INFO", "\"Smarter Balanced user processing COMPLETED. Elapsed Time: $processingTime Seconds\"");
+updateLog("INFO", "\"Smarter Balanced user processing ART to Federated system COMPLETED. Elapsed Time: $processingTime Seconds\"");
 updateLog("INFO", "\"*******************************\"");
-
-
 
 ##########################################################################################################
 #                                           Subroutines                                                  #
@@ -417,7 +387,7 @@ updateLog("INFO", "\"*******************************\"");
 # Subroutine:  translateCER()                                                                            #
 #                                                                                                        #
 # This subroutine translates Character Entity Records required within XML into single characters         #
-# accepted by OpenDJ.                                                                                    #
+# accepted by the Federated system.                                                                      #
 ##########################################################################################################
 
 sub translateCER {
@@ -451,15 +421,16 @@ sub translateCER {
 ##########################################################################################################
 # Subroutine:  processAddAction()                                                                        #
 #                                                                                                        #
-# This subroutine adds a new record to the directory server.  The XML data for an ADD operation contains #
+# This subroutine adds a new record to the Federated system.  The XML data for an ADD operation contains #
 # all of the attributes necessary to create the user's object.  This operation creates a new user based  #
-# on this data.                                                                                          #
+# on this data, and activates the user in the Federated system, unless the $fedActivateNewUser = 0.      #
 ##########################################################################################################
 
 sub processAddAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing ADD Action\n"; }
+  updateLog("INFO", "\"In Subroutine, processing ADD Action\"");
 
   # define a local array that contains the values of the data passed in
   my @addUserArray = @{$_[0]};
@@ -467,6 +438,7 @@ sub processAddAction {
   my $uniqueRoleArray = "";
 
   if ($consoleOutput == 1) { print "\nAdd User Array:   [@addUserArray]\n"; }
+  updateLog("INFO", "\"Add User Array: [@addUserArray]\"");
 
   # LDIF Variables
   my $sbacuuid        = "";     # Smarter Balanced UUID
@@ -609,10 +581,9 @@ sub processAddAction {
          # Process an early exit from the script
          my $errorMessage = "Invalid Element Found While Processing ADD in Smarter Balanced User XML File:  $_<br><br>";
          processEarlyExit($errorMessage,$dataFileExists);
-
       }
-
   }
+  
   $cn = $givenName." ".$sn;
 
   # print message to console (if flag enabled)
@@ -624,51 +595,31 @@ sub processAddAction {
 
   # if a password was not passed in via the data file, we will generate one
   if ($userPassword eq "") {
-
       if ($testXMLFile == 0) {
-
           updateLog("INFO", "\"Generating random password for user.\"");
 
           # generate a random password for new users
           $userPassword = generateRandomPassword();
-
       } else {
-
           updateLog("INFO", "\"Setting password to default value.\"");
 
           # test file users (that don't already have a password set will
           # receive a default password
           $userPassword = $defaultPassword;
-
       }
   } else {
-
-    updateLog("INFO", "\"Using password included in XML file.\"");
-      
+      updateLog("INFO", "\"Using password included in XML file.\"");
   }
 
   # determine the number of elements included in the role array (how many tenancy chains)
   $numRoleElements = @roleArray;
 
-  # Add the new user to the Federated SSO
+  # Add the new user to the Federated system
   if ($telephoneNumber eq "undef") {
-
       if ($numRoleElements == 0) { 
-          # if there are no role elements, do not pass anything to the federated API
-          # deprecate LDAP communication
-          #$mesg = $ldapHandle->add($DN, attr => [
-          #        'sn'               => "$sn",
-          #        'givenName'        => "$givenName",
-          #        'cn'               => "$cn",
-          #        'sbacUUID'         => "$sbacuuid",
-          #        'uid'              => "$uid",
-          #        'mail'             => "$mail",
-          #        'userPassword'     => "$userPassword",
-          #        'inetUserStatus'   => "Active",
-          #        'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
-
+          # if there are no role elements, do not pass anything to the Federated API          
       } else {
-          # build the JSON object to pass to the API
+          # build the JSON object to pass to the Federated API
           $body = {
               profile => {
                   login => $mail,
@@ -683,8 +634,14 @@ sub processAddAction {
           # convert the $body variable into a proper JSON object
           my $body_json = JSON->new->utf8->encode($body);
           if ($consoleOutput == 1) { print "JSON: $body_json\n"; }
+          updateLog("INFO", "\"JSON object to pass to Federated system: $body_json \"");
           
-          my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIAddEndpoint);
+          if ($fedActivateNewUser == 0) {
+              # do not active the new user
+              my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . $fedAPIDoNotActivateUser);
+          } else {
+              my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint);
+          }
           $req->header('Accept' => 'application/json');
           $req->header('Content-Type' => 'application/json');
           $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
@@ -694,92 +651,12 @@ sub processAddAction {
           $lwp->ssl_opts(verify_hostname => 0);         
           my $res = $lwp->request($req)->as_string;
 
-          if ($consoleOutput == 1) { print "API Response: $res\n"; }
-          
-          # deprecate LDAP communication
-          # $mesg = $ldapHandle->add($DN, attr => [
-                  # 'sn'               => "$sn",
-                  # 'givenName'        => "$givenName",
-                  # 'cn'               => "$cn",
-                  # 'sbacUUID'         => "$sbacuuid",
-                  # 'uid'              => "$uid",
-                  # 'mail'             => "$mail",
-                  # 'userPassword'     => "$userPassword",
-                  # 'inetUserStatus'   => "Active",
-                  # 'sbacTenancyChain' => [ @roleArray ],
-                  # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
-      }
-
-  } else {
-      # if there are no role elements, do not pass anything to the API  
-      if ($numRoleElements == 0) { 
-          # $mesg = $ldapHandle->add($DN, attr => [
-                  # 'sn'               => "$sn",
-                  # 'givenName'        => "$givenName",
-                  # 'cn'               => "$cn",
-                  # 'sbacUUID'         => "$sbacuuid",
-                  # 'uid'              => "$uid",
-                  # 'mail'             => "$mail",
-                  # 'userPassword'     => "$userPassword",
-                  # 'telephoneNumber'  => "$telephoneNumber",
-                  # 'inetUserStatus'   => "Active",
-                  # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
-
-      } else {
-          # $mesg = $ldapHandle->add($DN, attr => [
-                  # 'sn'               => "$sn",
-                  # 'givenName'        => "$givenName",
-                  # 'cn'               => "$cn",
-                  # 'sbacUUID'         => "$sbacuuid",
-                  # 'uid'              => "$uid",
-                  # 'mail'             => "$mail",
-                  # 'userPassword'     => "$userPassword",
-                  # 'telephoneNumber'  => "$telephoneNumber",
-                  # 'inetUserStatus'   => "Active",
-                  # 'sbacTenancyChain' => [ @roleArray ],
-                  # 'objectClass'      => ['top', 'person', 'organizationalPerson', 'inetOrgPerson', 'sbacPerson', 'inetuser', 'iplanet-am-user-service'] ] );
-
+          if ($consoleOutput == 1) { print "Federated API Response for ADD action: $res\n"; }
+          updateLog("INFO", "\"Federated API Response for ADD action: $res\"");          
       }
   }
 
-  # deprecate any message processing from LDAP
-  # if ($mesg->code) {
-
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing ADD on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while adding entry: $DN.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "ADD:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-  # } else {
-
-      # # Don't send emails to users if we are processing a XML file used for testing
-      # if ($testXMLFile == 0) {
-
-          # # notify the user that their account has been created
-          # my $emailSubject = "Welcome to the Smarter Balanced development environment";
-          # my $emailBody = "Welcome, $cn, to Smarter Balanced!  Your account, $uid, has been created and your temporary password is: $userPassword<br><br>";
-             # $emailBody .= "This account will let you immediately access the Smarter Balanced development environment.<br><br>";
-             # $emailBody .= "You are required to change your temporary password.<br><br>";
-             # $emailBody .= "Click the following link to access your account and update your password: <a href=\"https://oam-secure.ci.opentestsystem.org/auth/UI/Login\">https://oam-secure.ci.opentestsystem.org/auth/UI/Login</a>.<br><br>";
-             # $emailBody .= "You will not be able to log into any Smarter Balanced systems until you have updated your temporary password and provided an answer to a security question.<br><br>";
-             # $emailBody .= "You can find out more information about Smarter Balanced systems on the <a href=\"http://portal-dev.opentestsystem.org/\">Smarter Balanced web site</a> at http://portal-dev.opentestsystem.org/.<br><br>";
-
-          # if ($emailOverride == 1) { 
-              # $mail = $emailAddrOverride;
-          # } 
-          # sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
-
-          # # if extended logging is enabled, add additional details to log file
-          # if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of new account ($mail)\""); }
-      # }
-
-       $addCount++;        # Keep track of how many additions were made to the OpenDJ server
-  # }
+  $addCount++;        # Keep track of how many additions were made to the Federated system
 
   # initialize the role array after processing; use the undef() to free up memory
   undef(@roleArray);
@@ -792,7 +669,7 @@ return 1;
 ##########################################################################################################
 # Subroutine:  processDelAction()                                                                        #
 #                                                                                                        #
-# This subroutine deletes an existing user from the directory server.  No notification is sent to the    #
+# This subroutine deletes an existing user from the Federated system.  No notification is sent to the    #
 # user for this operation.  This should be reconsidered in the future.                                   #
 ##########################################################################################################
 
@@ -802,30 +679,31 @@ sub processDelAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing DELETE Action\n"; }
+  updateLog("INFO", "\"In Subroutine, processing DELETE Action\"");
 
   # define a local array that contains the values of the data passed in
   my @delUserArray = @{$_[0]};
 
   if ($consoleOutput == 1) { print "\nDel User Array:   [@delUserArray]\n"; }
+  updateLog("INFO", "\"Del User Array: [@delUserArray]\"");
 
   foreach (@delUserArray) {
-
-
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
           $DN  = "sbacUUID=$1,$ldapBaseDN";
+      } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail, uid)
+          $mail = translateCER($1);
+          $uid  = $mail;
       } else {
-
           # Process an early exit from the script
           my $errorMessage = "Invalid value found ($_) for DELETE action!<br><br>";
           processEarlyExit($errorMessage,$dataFileExists);
-
       }
-
   }
+  
   #############################################
-  # Delete the user from the Federated Server #
+  # Delete the user from the Federated system #
   #############################################
-  my $req = HTTP::Request->new("DELETE", $fedAPIHost . $fedAPIDelEndpoint);
+  my $req = HTTP::Request->new("DELETE", $fedAPIHost . $fedAPIUserEndpoint . "/" . $mail);
   $req->header('Accept' => 'application/json');
   $req->header('Content-Type' => 'application/json');
   $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
@@ -834,40 +712,18 @@ sub processDelAction {
   $lwp->ssl_opts(verify_hostname => 0);         
   my $res = $lwp->request($req)->as_string;
 
-  if ($consoleOutput == 1) { print "API Response: $res\n"; }
+  if ($consoleOutput == 1) { print "Intial Federated API Response: $res\n"; }
+  updateLog("INFO", "\"Initial Federated API response for DELETE action: $res\"");
   
-  # for the Federated SSO solution, an initial DELETE only deactivates the account.
+  # for the Federated system solution, an initial DELETE only deactivates the account.
   # a second DELETE needs to be passed in order to permanetly delete the account.
   $lwp->ssl_opts(verify_hostname => 0);         
   my $res = $lwp->request($req)->as_string;
 
-  if ($consoleOutput == 1) { print "API Response: $res\n"; }
-
-  ##########################################
-  # Delete the user from the OpenDJ Server #
-  ##########################################
-  # deprecate delete from OpenDJ server
-  # Delete the user from the OpenDJ server
-  #$mesg = $ldapHandle->delete($DN);
-
-  # check for valid bind operation or print error if unable to update the hos
-  # if ($mesg->code) {
-
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing DEL on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while deleting entry: $DN.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "DEL:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-  # } else {
-
-      # $delCount++;        # Keep track of how many user deletions were made on the OpenDJ server
-
-  # }
+  if ($consoleOutput == 1) { print "Second Federated API Response for DELETE action: $res\n"; }
+  updateLog("INFO", "\"Second Federated API response for DELETE action: $res\"");
+  
+  $delCount++;        # Keep track of how many user deletions were made on the Federated system
 
 return 1;
 
@@ -878,7 +734,7 @@ return 1;
 ##########################################################################################################
 # Subroutine:  processModAction()                                                                        #
 #                                                                                                        #
-# This subroutine modifies an existing directory server user's attributes.  The XML data for a MOD       #
+# This subroutine modifies an existing Federated system user's attributes.  The XML data for a MOD       #
 # operation is expected to consist of all attributes associated with a user so it simply updates the     #
 # user's record with all of this data.                                                                   #
 ##########################################################################################################
@@ -887,6 +743,7 @@ sub processModAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing MOD Action\n"; }
+  updateLog("INFO", "\"In Subroutine, processing MOD Action\"");
 
   # define a local array that contains the values of the data passed in
   my @modUserArray = @{$_[0]};
@@ -894,6 +751,7 @@ sub processModAction {
   my $uniqueRoleArray = "";
 
   if ($consoleOutput == 1) { print "\nMod User Array:   [@modUserArray]\n"; }
+  updateLog("INFO", "\"Mod User Array: [@modUserArray]\"");
 
   # LDIF Variables
   my $sbacuuid        = "";     # Smarter Balanced UUID
@@ -1036,17 +894,8 @@ sub processModAction {
   if ($consoleOutput == 1) { print "\nDN:  $DN\n"; }
 
   #####################################################
-  # Update the Federated SSO Server with the new user #
+  # Update the Federated system                       #
   #####################################################
-
-  # Update the user in the Federated SSO server
-  
-  # Note:  A modify operation DOES NOT change the following attributes:  sbacUUID, inetUserStatus, userPassword, or objectClass
-  #        A change to sbacUUID causes a change in the DN; therefore a moddn() operation is required
-  #        A change to objectClass is uncessary as all objectclasses are already populated
-  #        A change to the inetUserStatus is facililitated with the LOCK or UNLOCK operations
-  #        The userPassword is set on entry creation or on password reset facilitated in the XML dump.
-  #        The email/uid and sbacUUID attributes are currently the same, but this may not always be the case.  Allow the sbacUUID to be decoupled from the email/uid values if necessary (hence they are updateable).
 
   # determine the number of elements included in the role array (how many tenancy chains)
   $numRoleElements = @roleArray;
@@ -1054,15 +903,7 @@ sub processModAction {
    if ($telephoneNumber eq "undef") {
 
        if ($numRoleElements == 0) {
-
-          # deprecate LDAP communication
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ] ] );                   
-
+          # do nothing if the number of role elements is zero
        } else { 
           # build the JSON object to pass to the API
           $body = {
@@ -1080,7 +921,7 @@ sub processModAction {
           my $body_json = JSON->new->utf8->encode($body);
           if ($consoleOutput == 1) { print "JSON: $body_json\n"; }
           
-          my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIModEndpoint . $mail);
+          my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . "/" . $mail);
           $req->header('Accept' => 'application/json');
           $req->header('Content-Type' => 'application/json');
           $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
@@ -1090,59 +931,13 @@ sub processModAction {
           $lwp->ssl_opts(verify_hostname => 0);         
           my $res = $lwp->request($req)->as_string;
 
-          if ($consoleOutput == 1) { print "API Response: $res\n"; }
-          # deprecate LDAP communication
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ],                   
-                  # replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
+          if ($consoleOutput == 1) { print "Federated API Response for MOD action: $res\n"; }
+          updateLog("INFO", "\"Federated API Response for MOD action: $res\"");
        }
-
-   } else {
-      # if no roles, do not update any account in Federated SSO 
-      # if ($numRoleElements == 0) {
-
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ],                   
-                  # replace => [ 'telephoneNumber'  => "$telephoneNumber" ] ] );
-      # } else {
-
-          # $mesg = $ldapHandle->modify($DN, changes => [
-                  # replace => [ 'sn'               => "$sn" ],
-                  # replace => [ 'givenName'        => "$givenName" ] ,
-                  # replace => [ 'cn'               => "$cn" ],
-                  # replace => [ 'uid'              => "$uid" ],                   
-                  # replace => [ 'mail'             => "$mail" ],                   
-                  # replace => [ 'telephoneNumber'  => "$telephoneNumber" ],
-                  # replace => [ 'sbacTenancyChain' => [ @roleArray ] ] ] );
-      # }
-
-   }
+  }
   
-  # if ($mesg->code) {
-
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing MOD on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while modifying entry: $DN.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "MOD:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-  # } else {
-
-       $modCount++;        # Keep track of how many modifications were made to the OpenDJ server
-  # }
-
+  $modCount++;        # Keep track of how many modifications were made to the Federated system
+  
   # initialize the role array after processing; use the undef() to free up memory
   undef(@roleArray);
 
@@ -1155,97 +950,37 @@ return 1;
 # Subroutine:  processSyncAction()                                                                       #
 #                                                                                                        #
 # A SYNC operation is used when the generator of the XML data file questions the integrity of the data   #
-# found on the directory server.  This should only occur if the generator of the XML data believes it is #
-# out of synch with the Directory Server and wants to place the directory server in a known state.       #
+# found on the Federsted system.  This should only occur if the generator of the XML data believes it is #
+# out of synch with the Federated system and wants to place the Federated system in a known state.       #
 #                                                                                                        #
 # For this to occur, the processSyncAction() subroutine will update existing users' account with the     #
 # data found in the XML data file.  If the user's account does not exist, then the subroutine will       #
 # create a new account consisting of the data found in the XML data file.                                #
 #                                                                                                        #
-# No attempt is made to detect users in the directory server that do not exist in the XML data file so   #
+# No attempt is made to detect users in the Federated system that do not exist in the XML data file so   #
 # this is not actually a 'true' synchronization event.                                                   #
 #                                                                                                        #
 # WARNING:  The SYNC operation should be used sparingly.  Processing of extremely large files is akin to #
-# new data load and may take time to process.  This should not impact users with existing OpenAM sessions#
-# but use of the SYNC operation will most likely be masking problems with the program responsible for    #
-# generating the XML file.  This option should really be used as a last resort.                          #
+# new data load and may take time to process.  Use of the SYNC operation will most likely be masking     #
+# problems with the program responsible for generating the XML file.                                     #
+# This option should really be used as a last resort.                                                    #
 ##########################################################################################################
 
 sub processSyncAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing SYNC Action\n"; }
+  updateLog("INFO", "\"In Subroutine, process SYNC Action\"");
 
   # define a local array that contains the values of the data passed in
   my @syncArray = @{$_[0]};
 
   if ($consoleOutput == 1) { print "\nSync Array:   [@syncArray]\n"; }
+  updateLog("INFO", "\"Sync Array: [@syncArray]\"");
 
-  # LDIF Variables
-  my $sbacuuid        = "";     # Smarter Balanced UUID
-
-  foreach (@syncArray) {
-
-      # determine the sbacuuid attribute from the data
-      if ($_ =~ /<UUID>(.*)<\/UUID>$/) {    $sbacuuid = $1;    } 
-
-  }
-
-  #if ($consoleOutput == 1) { print "\nAttempting to Search on sbacuuid=$sbacuuid\n"; }
-
-  # define ldap search parameters
-  #my $base  = $ldapBaseDN;                  # starting point of search
-  #my $scope = "sub";                        # how far down in the tree to search (options, "sub", "base", and "one")
-  #my $searchString = "sbacuuid=$sbacuuid";  # the filter to use to locate the user
-  #my $attrs = [ 'dn' ];                     # a comma-delimited array of attributes to return in the search
-
-  # Search for the account in the OpenDJ server
-  #my $mesg = $ldapHandle->search( base => "$base", scope => "$scope", filter => "$searchString", attrs => $attrs);
-
-  #if ($mesg->code) {
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing SYNC on $sbacuuid. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while processing SYNC on $sbacuuid.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "SYNC:".$sbacuuid.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-   #} else {
-
-      # $syncCount++;       # Keep track of how many synchroniation operations were made to the OpenDJ server
-
-      # if ($consoleOutput == 1) { printf "\n# Entries found: %s\n", $mesg->count; }
-
-      # if ($mesg->count == 0) { 
-
-          # # Process this as an ADD Action
-          # processAddAction(\@syncArray);
-
-      # } elsif ($mesg->count == 1) { 
-
-          # # Process this as a MOD Action  
-           processModAction(\@syncArray);
-
-      # } else {
-
-          # # There were too many entries found.  There should have been only one or no entries
-
-          # $errCount++;    # Keep track of how many errors we have incurred
-
-          # # Send message to log file indicating error
-          # updateLog("WARN", "\"An error occurred while processing SYNC on $sbacuuid. More than one entry found in search operation\"");
-          # warn "\nAn error occurred while processing SYNC on $sbacuuid.  See logfile for details\n";
-
-          # # Save the error and include it in a final report
-          # $errorEntry = "SYNC:$sbacuuid:More than one entry found in search operation";
-          # push(@errorData, $errorEntry);
-
-      # }
-
-   #}
+  # Process this as a MOD Action  
+  updateLog("INFO", "\"Passing process to MOD action.\"");
+  processModAction(\@syncArray);
 
   # initialize the array after processing; use the undef() to free up memory
   undef(@syncArray);
@@ -1258,9 +993,8 @@ return 1;
 ##########################################################################################################
 # Subroutine:  processResetAction()                                                                      #
 #                                                                                                        #
-# This subroutine performs a reset of a user's password.  A password reset will generate a new random    #
-# password for the user.  This generates an email for the user consisting of a link for them to connect  #
-# to the OpenAM server and reset their password.                                                         #
+# This subroutine performs a reset of a user's password.  A password reset call will generate a one time #
+# token that is automatically emailed to the user.                                                       #
 ##########################################################################################################
 
 sub processResetAction {
@@ -1269,11 +1003,13 @@ sub processResetAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing RESET Action\n"; }
+  updateLog("INFO", "\"In Subroutine, processing RESET Action\"");
 
   # define a local array that contains the values of the data passed in
   my @resetUserArray = @{$_[0]};
 
   if ($consoleOutput == 1) { print "\nReset User Array:   [@resetUserArray]\n"; }
+  updateLog("INFO", "\"Reset User Array: [@resetUserArray]\"");
 
  # LDIF Variables
   my $sbacuuid        = "";     # Smarter Balanced UUID
@@ -1297,71 +1033,30 @@ sub processResetAction {
           $message = translateCER($1);
 
       } else {
-
           # Process an early exit from the script
           my $errorMessage = "Invalid Value ($) Found for RESET action<br><br>";
           processEarlyExit($errorMessage,$dataFileExists);
-
       }
-
   }
 
-  #########################################
-  # Reset the user from the OpenDJ Server #
-  #########################################
+  ############################################
+  # Reset the user from the Federated system #
+  ############################################
+  
+  my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . "/" . $mail . $fedAPIResetPwdEndpoint);
+  $req->header('Accept' => 'application/json');
+  $req->header('Content-Type' => 'application/json');
+  $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
+          
+  my $lwp = LWP::UserAgent->new; 
+  $lwp->ssl_opts(verify_hostname => 0);         
+  my $res = $lwp->request($req)->as_string;
 
-  # generate a random password when reseting passwords for users
-  $userPassword = generateRandomPassword();
-
-  # Reset the user's password in the OpenDJ server
-  #$mesg = $ldapHandle->modify($DN, changes => [
-  #        replace => [ 'userPassword'     => "$userPassword" ]] );
-
-
-  # if ($mesg->code) {
-
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing RESET on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while resetting passsword for entry: $DN.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "RESET:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-  # } else {
-
-      # # notify the user that their password has been reset
-      # my $emailSubject = "Smarter Balanced Digital Library Account Password Reset";
-
-      # my $emailBody  = "Your Smarter Balanced password has been reset.  Your temporary password is: $userPassword<br><br>";
-
-         # # if defined, include optional message
-         # if ($message ne "") {
-
-            # $emailBody .= "$message<br><br>";
-
-            # if ( $extendedLogging == 1 ) { updateLog("INFO", "\"Included Message: $message)\""); }
-
-         # } 
-
-         # $emailBody .= "You are required to change your password the next time you log in.<br><br>";
-         # $emailBody .= "Click <a href=\"https://oam-secure.ci.opentestsystem.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
-
-# #     my $emailBody = "Your Smarter Balanced password has been reset.  Your temporary password is: $userPassword<br><br>You are required to change your password the next time you log in.<br><br>Click <a href=\"https://sbac.openam.airast.org/auth/UI/Login\">here</a> to access your Smarter Balanced account now.";
-
-      # if ($emailOverride == 1) {
-          # $mail = $emailAddrOverride;
-      # }
-      # sendEmail($emailSubject,$emailBody,$mail,$fromAddress,"User");
-
-      # # if extended logging is enabled, add additional details to log file
-      # if ( $extendedLogging == 1 ) { updateLog("INFO", "\"User notified of password reset ($mail)\""); }
-
-      # $resetCount++;      # Keep track of how many password resets were made to the OpenDJ server
-  # }
-
+  if ($consoleOutput == 1) { print "Federated API Response for password RESET action: $res\n"; }
+  updateLog("INFO", "\"Federated API response for password RESET action: $res\"");
+  
+  $resetCount++;      # Keep track of how many password resets were made to the Federated system
+  
 return 1;
 
 }    # end of processResetAction()
@@ -1474,51 +1169,46 @@ sub processLockAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing LOCK Action\n"; }
+  updateLog("INFO", "\"In Subroutine, processing LOCK Action\"");
 
   # define a local array that contains the values of the data passed in
   my @lockUserArray = @{$_[0]};
 
   if ($consoleOutput == 1) { print "\nLock User Array:   [@lockUserArray]\n"; }
+  updateLog("INFO", "\"Lock User Array: [@lockUserArray]\"");
 
   foreach (@lockUserArray) {
 
       if ($_ =~ /<UUID>(.*)<\/UUID>$/) {                     # UUID (sbacUUID)
           $DN  = "sbacUUID=$1,$ldapBaseDN";
-      } else {
+      } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail, uid)
 
+          $mail = translateCER($1);
+          $uid  = $mail;
+      } else {
           # Process an early exit from the script
           my $errorMessage = "Invalid Value ($) Found for LOCK action<br><br>";
           processEarlyExit($errorMessage,$dataFileExists);
-
       }
 
   }
 
-  ######################################
-  # Lock the user in the OpenDJ Server #
-  ######################################
+  ############################################
+  # Suspend the user in the Federated system #
+  ############################################
+  my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . "/" . $mail . $fedAPISuspendEndpoint);
+  $req->header('Accept' => 'application/json');
+  $req->header('Content-Type' => 'application/json');
+  $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
+          
+  my $lwp = LWP::UserAgent->new; 
+  $lwp->ssl_opts(verify_hostname => 0);         
+  my $res = $lwp->request($req)->as_string;
 
-  # Lock the user's account in the OpenDJ server
-  # $mesg = $ldapHandle->modify($DN, replace => { "inetUserStatus" => "Inactive" } );
-
-  # # check for valid bind operation or print error if unable to update the hos
-  # if ($mesg->code) {
-
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing LOCK on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while locking entry: $DN.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "LOCK:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-  # } else {
-
-      # $lockCount++;       # Keep track of how many users were locked in the OpenDJ server
-
-  # }
+  if ($consoleOutput == 1) { print "Federated API Response for LOCK action: $res\n"; }
+  updateLog("INFO", "\"Federated API response for LOCK action: $res\"");
+  
+  $lockCount++;       # Keep track of how many users were locked in the Federated system
 
 return 1;
 
@@ -1539,11 +1229,13 @@ sub processUnlockAction {
 
   # print message to console (if flag enabled)
   if ($consoleOutput == 1) { print "In Subroutine, processing UNLOCK Action\n"; }
+  updateLog("INFO", "\"In Subroutine, process UNLOCK Action\"");
 
   # define a local array that contains the values of the data passed in
   my @unlockUserArray = @{$_[0]};
 
   if ($consoleOutput == 1) { print "\nUnlock User Array:   [@unlockUserArray]\n"; }
+  updateLog("INFO", "\"Unlock User Array: [@unlockUserArray]\"");
 
   foreach (@unlockUserArray) {
 
@@ -1551,41 +1243,32 @@ sub processUnlockAction {
 
           $DN  = "sbacUUID=$1,$ldapBaseDN";
 
-      } else {
+      } elsif ($_ =~ /<Email>(.*)<\/Email>$/) {              # email address (mail, uid)
 
+          $mail = translateCER($1);
+          $uid  = $mail;
+      } else {
           # Process an early exit from the script
           my $errorMessage = "Invalid Value ($) Found for UNLOCK action<br><br>";
           processEarlyExit($errorMessage,$dataFileExists);
-
       }
-
   }
 
-  ########################################
-  # Unlock the user in the OpenDJ Server #
-  ########################################
+  ##############################################
+  # Unsuspend the user in the Federated system #
+  ##############################################
+  my $req = HTTP::Request->new("POST", $fedAPIHost . $fedAPIUserEndpoint . "/" . $mail . $fedAPIUnsuspendEndpoint);
+  $req->header('Accept' => 'application/json');
+  $req->header('Content-Type' => 'application/json');
+  $req->header('Authorization' => 'SSWS ' . $fedAPIAuthKey);
+          
+  my $lwp = LWP::UserAgent->new; 
+  $lwp->ssl_opts(verify_hostname => 0);         
+  my $res = $lwp->request($req)->as_string;
 
-  # Unlock the user's account in the OpenDJ server
-  # $mesg = $ldapHandle->modify($DN, replace => { "inetUserStatus" => "Active" } );
-
-  # # check for valid bind operation or print error if unable to update the hos
-  # if ($mesg->code) {
-
-      # $errCount++;    # Keep track of how many errors we have incurred
-
-      # # Send message to log file indicating error
-      # updateLog("WARN", "\"An error occurred while processing UNLOCK on $DN. ".ldap_error_text($mesg->code)."\"");
-      # warn "\nAn error occurred while unlocking entry: $DN.  See logfile for details\n";
-
-      # # Save the error and include it in a final report
-      # $errorEntry = "UNLOCK:".$DN.":".ldap_error_text($mesg->code);
-      # push(@errorData, $errorEntry);
-
-  # } else {
-
-     # $unlockCount++;     # Keep track of how many users were unlocked in the OpenDJ server
-
-  # }
+  if ($consoleOutput == 1) { print "Federated API Response for UNLOCK action: $res\n"; }
+  
+  $unlockCount++;     # Keep track of how many users were unlocked in the Federated system
 
 return 1;
 
@@ -1721,8 +1404,6 @@ sub updateLog {
   # get current day/time
   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
   my $yyyymmdd = sprintf "%.4d%.2d%.2d", $year+1900, $mon+1, $mday;
-
-  my $logFile  = "/opt/scripts/drc/logs/sbaclogfile-$yyyymmdd";      # log File Name
   
   # open log file (make sure script user has permissions to write to directory)
   open (LOGFILE, ">>$logFile") or die "\nUnable to open log file ($logFile).  $!\n\n";
@@ -1904,16 +1585,9 @@ sub processEarlyExit {
   # create a plain text version of the error message for the log file and console
   my $textFormattedErrorMessage = $htmlFormattedErrorMessage;
   $textFormattedErrorMessage =~ s/\<br\>/ /g;
-
-  ########## Close Connections ##########
-
-  # unbind and disconnect from the OpenDJ server
-  #$ldapHandle->unbind;
-  #$ldapHandle->disconnect;
-
+  
   # close the XML file
   close(XMLFILE);
-
 
   ########## Move the Input File ##########
 
@@ -1954,9 +1628,8 @@ sub processEarlyExit {
   updateLog("ERROR", "\"$textFormattedErrorMessage\"");
 
   # Send messages to log file indicating processing has completed
-  updateLog("ERROR", "\"Smarter Balanced user processing TERMINATED.\"");
+  updateLog("ERROR", "\"Smarter Balanced user processing for ART to Federated system TERMINATED.\"");
   updateLog("INFO", "\"*******************************\"");
-
 
   ########## Exit the Script ##########
 
@@ -1964,3 +1637,4 @@ sub processEarlyExit {
   die ("$textFormattedErrorMessage\n");
 
 }    # end of processEarlyExit
+
