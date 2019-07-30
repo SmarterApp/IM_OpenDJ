@@ -105,7 +105,7 @@ my $sendEmailResponse  = 0;                                # (1) - 0 = do not se
 my $extendedLogging    = 1;                                # (1) - 0 = disable extended logging;   1 = enable extended logging
 my $emailOverride      = 0;                                # (0) - 0 = use email addr from file;   1 = explicitly specify email addr
 my $testXMLFile        = 0;                                # (0) - 0 = processing real XML file;   1 = processing test XML file
-my $fedActivateNewUser = 0;                                # (0) - 0 = new user account is not activated when created; 1 = activate new user account
+my $fedActivateNewUser = 1;                                # (0) - 0 = new user account is not activated when created; 1 = activate new user account
 
 # Environmental Variables - these variables may be customized to reflect your environment
 
